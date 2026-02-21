@@ -28,11 +28,12 @@ export default async function ExtrasPage() {
 
   let caseIds: string[] | null = null;
   if (profile && profile.role !== 'CEO' && profile.branch_id) {
-    const { data: branchCases } = await supabase
+    const { data: branchCasesData } = await supabase
       .from('cases')
       .select('id')
       .eq('branch_id', profile.branch_id);
-    caseIds = (branchCases ?? []).map((c) => c.id);
+    const branchCases = (branchCasesData ?? []) as { id: string }[];
+    caseIds = branchCases.map((c) => c.id);
   }
 
   let query = supabase
