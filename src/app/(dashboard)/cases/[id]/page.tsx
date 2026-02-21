@@ -44,7 +44,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   const branchId = (caseRow as { branch_id: string }).branch_id;
   if (profile?.role !== 'CEO' && profile?.branch_id !== branchId) notFound();
 
-  const { data: run } = await supabase
+  const { data: runData } = await supabase
     .from('case_workflow_runs')
     .select('id')
     .eq('case_id', id)
@@ -52,6 +52,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
     .eq('status', 'ACTIVE')
     .maybeSingle();
 
+  const run = runData as { id: string } | null;
   let steps: { id: string; step_key: string; state: string; order_index: number }[] = [];
   if (run) {
     const { data: stepsData } = await supabase
