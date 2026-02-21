@@ -76,19 +76,21 @@ export default async function CasesPage() {
   });
 
   const caseIds = openCases.map((c) => (c as { id: string }).id);
-  const { data: extrasByCase } = await supabase
+  const { data: extrasByCaseData } = await supabase
     .from('bodywork_extras')
     .select('case_id')
     .eq('status', 'IN_TREATMENT')
     .in('case_id', caseIds);
-  const caseIdsWithExtras = new Set((extrasByCase ?? []).map((e) => e.case_id));
+  const extrasByCase = (extrasByCaseData ?? []) as { case_id: string }[];
+  const caseIdsWithExtras = new Set(extrasByCase.map((e) => e.case_id));
 
-  const { data: approvalsByCase } = await supabase
+  const { data: approvalsByCaseData } = await supabase
     .from('ceo_approvals')
     .select('case_id, status')
     .in('case_id', caseIds);
+  const approvalsByCase = (approvalsByCaseData ?? []) as { case_id: string; status: string }[];
   const caseIdsApprovalBlocked = new Set<string>();
-  for (const a of approvalsByCase ?? []) {
+  for (const a of approvalsByCase) {
     if (a.status !== 'APPROVED') caseIdsApprovalBlocked.add(a.case_id);
   }
 
