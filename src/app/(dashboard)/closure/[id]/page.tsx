@@ -60,7 +60,7 @@ export default async function ClosureDetailPage({ params }: { params: Promise<{ 
   } else {
     const { data: newRun } = await supabase
       .from('case_workflow_runs')
-      .insert({ case_id: id, workflow_type: 'CLOSURE', status: 'ACTIVE' })
+      .insert({ case_id: id, workflow_type: 'CLOSURE', status: 'ACTIVE' } as never)
       .select('id')
       .single();
     const newRunRow = newRun as { id: string } | null;
