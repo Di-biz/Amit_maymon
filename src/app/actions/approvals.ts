@@ -10,11 +10,12 @@ export async function decideApproval(input: ApprovalDecisionInput) {
   } = await supabase.auth.getUser();
   if (!user) return { error: 'לא מחובר' };
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from('profiles')
     .select('id, role')
     .eq('id', user.id)
     .single();
+  const profile = profileData as { id: string; role: string } | null;
   if (profile?.role !== 'CEO') return { error: 'רק מנכ"ל יכול לאשר/לדחות' };
 
   const { data: approval } = await supabase

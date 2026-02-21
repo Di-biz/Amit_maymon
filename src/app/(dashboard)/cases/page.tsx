@@ -11,14 +11,15 @@ export default async function CasesPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from('profiles')
     .select('role, branch_id')
     .eq('id', user.id)
     .single();
 
-  const role = profile?.role;
-  const branchId = profile?.branch_id;
+  const profile = profileData as { role: string; branch_id: string | null } | null;
+  const role = profile?.role ?? null;
+  const branchId = profile?.branch_id ?? null;
 
   let casesQuery = supabase
     .from('cases')

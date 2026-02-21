@@ -10,11 +10,12 @@ export async function createExtra(input: CreateExtraInput) {
   } = await supabase.auth.getUser();
   if (!user) return { error: 'לא מחובר' };
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from('profiles')
     .select('id, role')
     .eq('id', user.id)
     .single();
+  const profile = profileData as { id: string; role: string } | null;
   if (profile?.role !== 'PAINTER') return { error: 'רק פחח יכול ליצור תוספת' };
 
   const { data: extra, error: insertErr } = await supabase
@@ -70,11 +71,12 @@ export async function updateExtraStatus(input: UpdateExtraStatusInput) {
   } = await supabase.auth.getUser();
   if (!user) return { error: 'לא מחובר' };
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from('profiles')
     .select('role')
     .eq('id', user.id)
     .single();
+  const profile = profileData as { role: string } | null;
   if (profile?.role !== 'SERVICE_MANAGER') return { error: 'רק מנהל שירות יכול לעדכן סטטוס' };
 
   const { error: updateErr } = await supabase

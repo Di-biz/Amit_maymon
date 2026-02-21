@@ -9,12 +9,13 @@ export default async function ExtrasPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from('profiles')
     .select('role, branch_id')
     .eq('id', user.id)
     .single();
 
+  const profile = profileData as { role: string; branch_id: string | null } | null;
   const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
   if (!isPreview && profile?.role !== 'SERVICE_MANAGER' && profile?.role !== 'CEO') {
     return (
@@ -26,7 +27,7 @@ export default async function ExtrasPage() {
   }
 
   let caseIds: string[] | null = null;
-  if (profile.role !== 'CEO' && profile.branch_id) {
+  if (profile && profile.role !== 'CEO' && profile.branch_id) {
     const { data: branchCases } = await supabase
       .from('cases')
       .select('id')

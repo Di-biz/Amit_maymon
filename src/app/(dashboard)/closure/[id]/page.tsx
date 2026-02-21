@@ -17,12 +17,13 @@ export default async function ClosureDetailPage({ params }: { params: Promise<{ 
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from('profiles')
     .select('role, branch_id')
     .eq('id', user.id)
     .single();
 
+  const profile = profileData as { role: string; branch_id: string | null } | null;
   const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
   if (!isPreview && profile?.role !== 'OFFICE' && profile?.role !== 'CEO') notFound();
 
@@ -35,7 +36,7 @@ export default async function ClosureDetailPage({ params }: { params: Promise<{ 
   if (!caseRow || (caseRow as { closed_at: string | null }).closed_at) notFound();
 
   const branchId = (caseRow as { branch_id: string }).branch_id;
-  if (profile.role !== 'CEO' && profile.branch_id !== branchId) notFound();
+  if (profile && profile.role !== 'CEO' && profile.branch_id !== branchId) notFound();
 
   let run = await supabase
     .from('case_workflow_runs')

@@ -48,12 +48,13 @@ export default async function DashboardLayout({
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from('profiles')
     .select('full_name, role, branch_id')
     .eq('id', user.id)
     .single();
 
+  const profile = profileData as { full_name?: string; role: string; branch_id: string | null } | null;
   const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
   const role = (profile?.role as UserRole) ?? 'SERVICE_ADVISOR';
   const links = isPreview

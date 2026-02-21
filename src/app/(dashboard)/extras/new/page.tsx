@@ -9,12 +9,13 @@ export default async function NewExtraPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from('profiles')
     .select('role, branch_id')
     .eq('id', user.id)
     .single();
 
+  const profile = profileData as { role: string; branch_id: string | null } | null;
   const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
   if (!isPreview && profile?.role !== 'PAINTER') {
     return (
@@ -30,7 +31,7 @@ export default async function NewExtraPage() {
     .select('id, case_key, cars(license_plate)')
     .is('closed_at', null);
 
-  if (profile.branch_id) {
+  if (profile?.branch_id) {
     casesQuery = casesQuery.eq('branch_id', profile.branch_id);
   }
 

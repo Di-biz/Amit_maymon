@@ -8,12 +8,13 @@ export default async function ExtrasMinePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from('profiles')
     .select('role')
     .eq('id', user.id)
     .single();
 
+  const profile = profileData as { role: string } | null;
   const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
   if (!isPreview && profile?.role !== 'PAINTER') {
     return (

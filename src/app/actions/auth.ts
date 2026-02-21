@@ -26,12 +26,13 @@ export async function loginAction(credentials: { email: string; password: string
     return { error: 'התחברות נכשלה' };
   }
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from('profiles')
     .select('role')
     .eq('id', authData.user.id)
     .single();
 
+  const profile = profileData as { role: string } | null;
   const role = (profile?.role as UserRole) ?? 'SERVICE_ADVISOR';
   redirect(ROLE_REDIRECT[role]);
 }

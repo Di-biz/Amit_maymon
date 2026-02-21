@@ -46,12 +46,13 @@ export async function createCase(input: CreateCaseInput) {
   } = await supabase.auth.getUser();
   if (!user) return { error: 'לא מחובר' };
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from('profiles')
     .select('id, role, branch_id')
     .eq('id', user.id)
     .single();
 
+  const profile = profileData as { id: string; role: string; branch_id: string | null } | null;
   const role = profile?.role as UserRole | undefined;
   if (role !== 'SERVICE_MANAGER' && role !== 'OFFICE') {
     return { error: 'אין הרשאה ליצירת תיק' };
@@ -178,11 +179,12 @@ export async function completeActiveStep(caseId: string) {
   } = await supabase.auth.getUser();
   if (!user) return { error: 'לא מחובר' };
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from('profiles')
     .select('id, role')
     .eq('id', user.id)
     .single();
+  const profile = profileData as { id: string; role: string } | null;
   const role = profile?.role as UserRole | undefined;
 
   const { data: caseRow } = await supabase
@@ -380,7 +382,8 @@ export async function returnToEstimate(caseId: string) {
   } = await supabase.auth.getUser();
   if (!user) return { error: 'לא מחובר' };
 
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+  const { data: profileData } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+  const profile = profileData as { role: string } | null;
   if (profile?.role !== 'SERVICE_MANAGER') return { error: 'רק מנהל שירות יכול להחזיר לאומדן' };
 
   const { data: run } = await supabase
