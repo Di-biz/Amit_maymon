@@ -17,7 +17,7 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
 }
 
-export function DataTable<T extends Record<string, unknown>>({
+export function DataTable<T extends object>({
   columns,
   data,
   searchPlaceholder = 'חיפוש...',
@@ -29,18 +29,20 @@ export function DataTable<T extends Record<string, unknown>>({
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
+  const rowRecord = (row: T) => row as Record<string, unknown>;
+
   let filtered = data;
   if (search && searchKeys && searchKeys.length > 0) {
     const s = search.toLowerCase();
     filtered = data.filter((row) =>
-      searchKeys.some((k) => String(row[k] ?? '').toLowerCase().includes(s))
+      searchKeys.some((k) => String(rowRecord(row)[k as string] ?? '').toLowerCase().includes(s))
     );
   }
 
   if (sortKey) {
     filtered = [...filtered].sort((a, b) => {
-      const va = a[sortKey];
-      const vb = b[sortKey];
+      const va = rowRecord(a)[sortKey];
+      const vb = rowRecord(b)[sortKey];
       const cmp = String(va).localeCompare(String(vb), undefined, { numeric: true });
       return sortDir === 'asc' ? cmp : -cmp;
     });
@@ -96,7 +98,7 @@ export function DataTable<T extends Record<string, unknown>>({
                   <td key={col.key} className="px-4 py-2 text-sm">
                     {col.render
                       ? col.render(row as T)
-                      : String(row[col.key] ?? '')}
+                      : String(rowRecord(row)[col.key] ?? '')}
                   </td>
                 ))}
               </tr>
