@@ -1,0 +1,28 @@
+# Tehila Bodyshop CRM – Cursor rules
+
+## Stack
+- Next.js 14+ App Router, TypeScript, Supabase (Postgres, Auth Email+Password, Storage), TailwindCSS
+
+## Database
+- All writes must respect RLS. Do not bypass RLS.
+- Every workflow/status transition must insert an `audit_events` row (entity_type, entity_id, action, user_id, payload).
+- Workflow state lives in `case_workflow_steps`; do not jump steps or skip validation.
+
+## Blocking rules (enforce in app + optionally in DB)
+- ENTER_WORK: only when `cases.parts_status = 'AVAILABLE'`.
+- READY_FOR_OFFICE / CLOSE_CASE: block if any `bodywork_extras.status = 'IN_TREATMENT'` or required CEO approvals missing/rejected.
+- FIXCAR_PHOTOS: cannot complete without `cases.fixcar_link`.
+- WHEELS_CHECK: auto-skip when vehicle age <= 2 years.
+
+## Roles & access
+- Branch-scoped access: filter by `profiles.branch_id` for current user.
+- SERVICE_MANAGER: workflow control. OFFICE: closure. CEO: approvals only. PAINTER: create bodywork extras only. SERVICE_ADVISOR: read-only.
+
+## Extras
+- PAINTER creates bodywork_extras with description + image in bucket `extras-images`. Default status IN_TREATMENT.
+- Only SERVICE_MANAGER may update extra status (IN_TREATMENT | REJECTED | DONE).
+
+## Code
+- Use `src/lib/supabase/client.ts` in client components, `src/lib/supabase/server.ts` in Server Components/Route Handlers.
+- Types from `src/types/database.ts`. Prefer typed Supabase client with `Database` type.
+- Keep UI and API modular; no business UI in foundation—only infrastructure and schema.
