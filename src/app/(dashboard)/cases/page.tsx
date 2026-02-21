@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import type { PartsStatus } from '@/types/database';
 import { CasesTable } from './CasesTable';
 import { CreateCaseButton } from './CreateCaseButton';
 
@@ -70,7 +71,7 @@ export default async function CasesPage() {
       claim: row.claim_number ?? '—',
       opened_at: row.opened_at,
       age,
-      parts_status: row.parts_status,
+      parts_status: row.parts_status as PartsStatus,
       general_status: row.general_status,
     };
   });
