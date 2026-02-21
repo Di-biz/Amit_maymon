@@ -74,7 +74,7 @@ export default async function ClosureDetailPage({ params }: { params: Promise<{ 
         state: i === 0 ? 'ACTIVE' : 'PENDING',
         order_index: i,
         activated_at: i === 0 ? closureActivatedAt : null,
-      });
+      } as never);
     }
     const { data: stepsData } = await supabase
       .from('case_workflow_steps')
