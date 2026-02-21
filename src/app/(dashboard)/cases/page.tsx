@@ -95,8 +95,9 @@ export default async function CasesPage() {
   }
 
   const canCreate = role === 'SERVICE_MANAGER' || role === 'OFFICE';
+  const isCeo = role === 'CEO';
   let branches: { id: string; name: string }[] = [];
-  if (role === 'CEO') {
+  if (isCeo) {
     const { data: b } = await supabase.from('branches').select('id, name');
     branches = b ?? [];
   }
@@ -109,7 +110,7 @@ export default async function CasesPage() {
           <CreateCaseButton
             branchId={branchId}
             branches={branches}
-            isCeo={role === 'CEO'}
+            isCeo={isCeo}
           />
         )}
       </div>
