@@ -10,11 +10,13 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from('profiles')
     .select('role, branch_id')
     .eq('id', user.id)
     .single();
+
+  const profile = profileData as { role: string; branch_id: string | null } | null;
 
   const { data: caseRow } = await supabase
     .from('cases')
