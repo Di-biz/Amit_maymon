@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect, notFound } from 'next/navigation';
+import type { PartsStatus, GeneralStatus } from '@/types/database';
 import { CaseDetailClient } from './CaseDetailClient';
 
 export default async function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -115,8 +116,8 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
       branchName={branch?.name ?? '—'}
       openedAt={(caseRow as { opened_at: string | null }).opened_at}
       age={age}
-      partsStatus={(caseRow as { parts_status: string }).parts_status}
-      generalStatus={(caseRow as { general_status: string }).general_status}
+      partsStatus={(caseRow as { parts_status: string }).parts_status as PartsStatus}
+      generalStatus={(caseRow as { general_status: string }).general_status as GeneralStatus}
       fixcarLink={(caseRow as { fixcar_link: string | null }).fixcar_link}
       steps={steps}
       approvals={approvals ?? []}
