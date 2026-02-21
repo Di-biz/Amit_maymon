@@ -70,11 +70,12 @@ export default async function DashboardLayout({
 
   let branchName = '—';
   if (profile?.branch_id) {
-    const { data: branch } = await supabase
+    const { data: branchData } = await supabase
       .from('branches')
       .select('name')
       .eq('id', profile.branch_id)
       .single();
+    const branch = branchData as { name: string } | null;
     branchName = branch?.name ?? '—';
   }
 
