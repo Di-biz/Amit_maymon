@@ -38,18 +38,19 @@ export default async function ClosureDetailPage({ params }: { params: Promise<{ 
   const branchId = (caseRow as { branch_id: string }).branch_id;
   if (profile && profile.role !== 'CEO' && profile.branch_id !== branchId) notFound();
 
-  let run = await supabase
+  const { data: runData } = await supabase
     .from('case_workflow_runs')
     .select('id')
     .eq('case_id', id)
     .eq('workflow_type', 'CLOSURE')
     .maybeSingle();
 
+  const existingRun = runData as { id: string } | null;
   let runId: string;
   let steps: { id: string; step_key: string; state: string; order_index: number }[] = [];
 
-  if (run.data?.id) {
-    runId = run.data.id;
+  if (existingRun?.id) {
+    runId = existingRun.id;
     const { data: stepsData } = await supabase
       .from('case_workflow_steps')
       .select('id, step_key, state, order_index')
@@ -62,8 +63,9 @@ export default async function ClosureDetailPage({ params }: { params: Promise<{ 
       .insert({ case_id: id, workflow_type: 'CLOSURE', status: 'ACTIVE' })
       .select('id')
       .single();
-    if (!newRun?.id) notFound();
-    runId = newRun.id;
+    const newRunRow = newRun as { id: string } | null;
+    if (!newRunRow?.id) notFound();
+    runId = newRunRow.id;
     const closureActivatedAt = new Date().toISOString();
     for (let i = 0; i < CLOSURE_STEPS.length; i++) {
       await supabase.from('case_workflow_steps').insert({
