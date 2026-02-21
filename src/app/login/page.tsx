@@ -1,13 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { loginAction } from '@/app/actions/auth';
 
+const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
+
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isPreview) router.replace('/cases');
+  }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -27,6 +35,8 @@ export default function LoginPage() {
       setLoading(false);
     }
   }
+
+  if (isPreview) return null;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">

@@ -15,7 +15,8 @@ export default async function ExtrasPage() {
     .eq('id', user.id)
     .single();
 
-  if (profile?.role !== 'SERVICE_MANAGER' && profile?.role !== 'CEO') {
+  const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
+  if (!isPreview && profile?.role !== 'SERVICE_MANAGER' && profile?.role !== 'CEO') {
     return (
       <div>
         <h1 className="text-2xl font-bold mb-4">תוספות</h1>

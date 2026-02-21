@@ -14,7 +14,8 @@ export default async function ExtrasMinePage() {
     .eq('id', user.id)
     .single();
 
-  if (profile?.role !== 'PAINTER') {
+  const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
+  if (!isPreview && profile?.role !== 'PAINTER') {
     return (
       <div>
         <h1 className="text-2xl font-bold mb-4">התוספות שלי</h1>

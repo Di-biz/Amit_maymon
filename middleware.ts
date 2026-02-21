@@ -9,10 +9,16 @@ function isAppPath(pathname: string) {
   return APP_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
 }
 
+const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
+
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({
+  const response = NextResponse.next({
     request: { headers: request.headers },
   });
+
+  if (isPreview) {
+    return response;
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

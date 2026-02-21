@@ -54,8 +54,17 @@ export default async function DashboardLayout({
     .eq('id', user.id)
     .single();
 
+  const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
   const role = (profile?.role as UserRole) ?? 'SERVICE_ADVISOR';
-  const links = ROLE_LINKS[role];
+  const links = isPreview
+    ? [
+        { label: 'תיקים', href: '/cases' },
+        { label: 'סגירה', href: '/closure' },
+        { label: 'אישורים', href: '/approvals' },
+        { label: 'תוספות', href: '/extras' },
+        { label: 'התראות', href: '/notifications' },
+      ]
+    : ROLE_LINKS[role];
   const roleLabel = ROLE_LABEL[role];
 
   let branchName = '—';
@@ -70,6 +79,11 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen flex flex-col">
+      {isPreview && (
+        <div className="bg-amber-100 border-b border-amber-300 px-4 py-2 text-center text-sm text-amber-900">
+          מצב תצוגה מקדימה — ללא התחברות וללא מסד נתונים. הנתונים להמחשה בלבד.
+        </div>
+      )}
       <header className="border-b bg-white px-4 py-2 flex items-center justify-between">
         <span className="font-bold">CRM תהילה</span>
         <div className="flex items-center gap-4 text-sm">

@@ -1,10 +1,17 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { Database } from '@/types/database';
+import { createMockSupabaseClient } from './mock-client';
 
 type CookieToSet = { name: string; value: string; options?: Record<string, unknown> };
 
+const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
+
 export async function createClient() {
+  if (isPreview) {
+    return createMockSupabaseClient() as ReturnType<typeof createServerClient<Database>>;
+  }
+
   const cookieStore = await cookies();
 
   return createServerClient<Database>(
