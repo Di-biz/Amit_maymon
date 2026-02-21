@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { completeActiveStep, returnToEstimate } from '@/app/actions/workflow';
-import type { PartsStatus } from '@/types/database';
+import type { Case, PartsStatus } from '@/types/database';
 
 const STEP_LABELS: Record<string, string> = {
   OPEN_CASE: 'פתיחת תיק',
@@ -68,7 +68,7 @@ export function CaseDetailClient({
     if (!canEdit) return;
     setUpdatingFixcar(true);
     const supabase = (await import('@/lib/supabase/client')).createClient();
-    await supabase.from('cases').update({ fixcar_link: fixcarValue || null }).eq('id', caseId);
+    await supabase.from('cases').update({ fixcar_link: fixcarValue || null } as Partial<Case>).eq('id', caseId);
     setUpdatingFixcar(false);
     router.refresh();
   }
@@ -77,7 +77,7 @@ export function CaseDetailClient({
     if (!canEdit) return;
     setUpdatingParts(true);
     const supabase = (await import('@/lib/supabase/client')).createClient();
-    await supabase.from('cases').update({ parts_status: partsValue }).eq('id', caseId);
+    await supabase.from('cases').update({ parts_status: partsValue } as Partial<Case>).eq('id', caseId);
     setUpdatingParts(false);
     router.refresh();
   }
@@ -146,7 +146,7 @@ export function CaseDetailClient({
                 setPartsValue(v);
                 setUpdatingParts(true);
                 const supabase = (await import('@/lib/supabase/client')).createClient();
-                await supabase.from('cases').update({ parts_status: v }).eq('id', caseId);
+                await supabase.from('cases').update({ parts_status: v } as Partial<Case>).eq('id', caseId);
                 setUpdatingParts(false);
                 router.refresh();
               }}
