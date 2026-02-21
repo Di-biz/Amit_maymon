@@ -62,12 +62,14 @@ export default async function ClosureDetailPage({ params }: { params: Promise<{ 
       .single();
     if (!newRun?.id) notFound();
     runId = newRun.id;
+    const closureActivatedAt = new Date().toISOString();
     for (let i = 0; i < CLOSURE_STEPS.length; i++) {
       await supabase.from('case_workflow_steps').insert({
         run_id: runId,
         step_key: CLOSURE_STEPS[i],
         state: i === 0 ? 'ACTIVE' : 'PENDING',
         order_index: i,
+        activated_at: i === 0 ? closureActivatedAt : null,
       });
     }
     const { data: stepsData } = await supabase

@@ -52,6 +52,7 @@ export interface Profile {
   full_name: string;
   role: UserRole;
   branch_id: string | null;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -83,6 +84,7 @@ export interface Case {
   opened_at: string | null;
   treatment_finished_at: string | null;
   closed_at: string | null;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -102,6 +104,7 @@ export interface CaseWorkflowStep {
   step_key: string;
   state: StepState;
   order_index: number;
+  activated_at: string | null;
   completed_at: string | null;
   completed_by: string | null;
   created_at: string;
@@ -131,9 +134,18 @@ export interface BodyworkExtra {
   updated_at: string;
 }
 
+export type NotificationType =
+  | 'BLOCKED_ACTION'
+  | 'CEO_REJECTED'
+  | 'EXTRA_CREATED'
+  | 'EXTRA_STATUS_CHANGED'
+  | 'APPROVAL_NEEDED'
+  | 'OTHER';
+
 export interface Notification {
   id: string;
   user_id: string;
+  type: NotificationType | null;
   title: string;
   body: string | null;
   read: boolean;

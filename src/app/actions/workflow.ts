@@ -102,6 +102,7 @@ export async function createCase(input: CreateCaseInput) {
       insurance_type: input.insurance_type ?? null,
       claim_type: input.claim_type ?? null,
       opened_at: openedAt,
+      created_by: user.id,
     })
     .select('id')
     .single();
@@ -145,6 +146,7 @@ export async function createCase(input: CreateCaseInput) {
       step_key: stepKey,
       state,
       order_index: i,
+      activated_at: state === 'ACTIVE' ? openedAt : null,
       completed_at: completedAt,
     });
   }
@@ -215,6 +217,7 @@ export async function completeActiveStep(caseId: string) {
   if (stepKey === 'FIXCAR_PHOTOS' && !caseRow.fixcar_link) {
     await supabase.from('notifications').insert({
       user_id: profile!.id,
+      type: 'BLOCKED_ACTION',
       title: 'פעולה חסומה',
       body: 'לא ניתן להשלים צילום FixCar ללא קישור',
     });
@@ -227,6 +230,7 @@ export async function completeActiveStep(caseId: string) {
   if (stepKey === 'ENTER_WORK' && caseRow.parts_status !== 'AVAILABLE') {
     await supabase.from('notifications').insert({
       user_id: profile!.id,
+      type: 'BLOCKED_ACTION',
       title: 'פעולה חסומה',
       body: 'לא ניתן להיכנס לעבודה ללא חלקים זמינים',
     });
@@ -245,6 +249,7 @@ export async function completeActiveStep(caseId: string) {
     if (extras && extras.length > 0) {
       await supabase.from('notifications').insert({
         user_id: profile!.id,
+        type: 'BLOCKED_ACTION',
         title: 'פעולה חסומה',
         body: 'קיימות תוספות בטיפול',
       });
@@ -270,6 +275,7 @@ export async function completeActiveStep(caseId: string) {
     if (!estimateApproval || estimateApproval.status !== 'APPROVED') {
       await supabase.from('notifications').insert({
         user_id: profile!.id,
+        type: 'BLOCKED_ACTION',
         title: 'פעולה חסומה',
         body: 'חסר או נדחה אישור CEO לאומדן',
       });
@@ -281,6 +287,7 @@ export async function completeActiveStep(caseId: string) {
     if (needsWheelsApproval && (!wheelsApproval || wheelsApproval.status !== 'APPROVED')) {
       await supabase.from('notifications').insert({
         user_id: profile!.id,
+        type: 'BLOCKED_ACTION',
         title: 'פעולה חסומה',
         body: 'חסר או נדחה אישור CEO לבדיקת גלגלים',
       });
@@ -353,7 +360,7 @@ export async function completeActiveStep(caseId: string) {
   if (nextSteps && nextSteps.length > 0) {
     await supabase
       .from('case_workflow_steps')
-      .update({ state: 'ACTIVE' })
+      .update({ state: 'ACTIVE', activated_at: now })
       .eq('id', nextSteps[0].id);
   } else if (run.workflow_type === 'PROFESSIONAL') {
     await supabase.from('case_workflow_runs').update({ status: 'COMPLETED' }).eq('id', run.id);
@@ -398,9 +405,10 @@ export async function returnToEstimate(caseId: string) {
     .update({ state: 'PENDING' })
     .eq('run_id', run.id)
     .eq('state', 'ACTIVE');
+  const now = new Date().toISOString();
   await supabase
     .from('case_workflow_steps')
-    .update({ state: 'ACTIVE' })
+    .update({ state: 'ACTIVE', activated_at: now })
     .eq('id', prepStep.data.id);
 
   await writeAudit(supabase, 'WORKFLOW_STEP', prepStep.data.id, 'RETURNED_TO_ESTIMATE', user.id);

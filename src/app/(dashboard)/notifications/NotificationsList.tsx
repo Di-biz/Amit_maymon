@@ -4,6 +4,7 @@ import { markRead, markAllRead } from '@/app/actions/notifications';
 
 interface NotificationRow {
   id: string;
+  type: string | null;
   title: string;
   body: string | null;
   read: boolean;

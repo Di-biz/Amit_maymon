@@ -61,6 +61,7 @@ export async function decideApproval(input: ApprovalDecisionInput) {
     for (const m of managers ?? []) {
       await supabase.from('notifications').insert({
         user_id: m.id,
+        type: 'CEO_REJECTED',
         title: 'אישור נדחה',
         body: input.rejection_note ?? 'עמית דחה אישור',
       });
