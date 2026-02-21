@@ -45,7 +45,7 @@ export async function decideApproval(input: ApprovalDecisionInput) {
     action,
     user_id: user.id,
     payload: { case_id: approval.case_id },
-  });
+  } as never);
 
   if (input.status === 'REJECTED') {
     const { data: caseRow } = await supabase
@@ -65,7 +65,7 @@ export async function decideApproval(input: ApprovalDecisionInput) {
         type: 'CEO_REJECTED',
         title: 'אישור נדחה',
         body: input.rejection_note ?? 'עמית דחה אישור',
-      });
+      } as never);
     }
   }
 
