@@ -1,0 +1,116 @@
+import { createClient } from '@/lib/supabase/server';
+import { redirect, notFound } from 'next/navigation';
+import { ClosureDetailClient } from './ClosureDetailClient';
+
+const CLOSURE_STEPS = [
+  'CLOSURE_VERIFY_DETAILS_DOCS',
+  'CLOSURE_PROFORMA_IF_NEEDED',
+  'CLOSURE_PREPARE_CLOSING_FORMS',
+  'CLOSE_CASE',
+];
+
+export default async function ClosureDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect('/login');
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, branch_id')
+    .eq('id', user.id)
+    .single();
+
+  if (profile?.role !== 'OFFICE' && profile?.role !== 'CEO') notFound();
+
+  const { data: caseRow } = await supabase
+    .from('cases')
+    .select('id, case_key, closed_at, branch_id, cars(license_plate)')
+    .eq('id', id)
+    .single();
+
+  if (!caseRow || (caseRow as { closed_at: string | null }).closed_at) notFound();
+
+  const branchId = (caseRow as { branch_id: string }).branch_id;
+  if (profile.role !== 'CEO' && profile.branch_id !== branchId) notFound();
+
+  let run = await supabase
+    .from('case_workflow_runs')
+    .select('id')
+    .eq('case_id', id)
+    .eq('workflow_type', 'CLOSURE')
+    .maybeSingle();
+
+  let runId: string;
+  let steps: { id: string; step_key: string; state: string; order_index: number }[] = [];
+
+  if (run.data?.id) {
+    runId = run.data.id;
+    const { data: stepsData } = await supabase
+      .from('case_workflow_steps')
+      .select('id, step_key, state, order_index')
+      .eq('run_id', runId)
+      .order('order_index');
+    steps = stepsData ?? [];
+  } else {
+    const { data: newRun } = await supabase
+      .from('case_workflow_runs')
+      .insert({ case_id: id, workflow_type: 'CLOSURE', status: 'ACTIVE' })
+      .select('id')
+      .single();
+    if (!newRun?.id) notFound();
+    runId = newRun.id;
+    for (let i = 0; i < CLOSURE_STEPS.length; i++) {
+      await supabase.from('case_workflow_steps').insert({
+        run_id: runId,
+        step_key: CLOSURE_STEPS[i],
+        state: i === 0 ? 'ACTIVE' : 'PENDING',
+        order_index: i,
+      });
+    }
+    const { data: stepsData } = await supabase
+      .from('case_workflow_steps')
+      .select('id, step_key, state, order_index')
+      .eq('run_id', runId)
+      .order('order_index');
+    steps = stepsData ?? [];
+  }
+
+  const { data: extras } = await supabase
+    .from('bodywork_extras')
+    .select('id')
+    .eq('case_id', id)
+    .eq('status', 'IN_TREATMENT');
+  const blockedByExtras = (extras?.length ?? 0) > 0;
+
+  const { data: approvals } = await supabase
+    .from('ceo_approvals')
+    .select('approval_type, status')
+    .eq('case_id', id);
+  const estimateOk = (approvals ?? []).some(
+    (a) => a.approval_type === 'ESTIMATE_AND_DETAILS' && a.status === 'APPROVED'
+  );
+  const wheelsDone = (approvals ?? []).some((a) => a.approval_type === 'WHEELS_CHECK');
+  const wheelsOk = !wheelsDone || (approvals ?? []).some(
+    (a) => a.approval_type === 'WHEELS_CHECK' && a.status === 'APPROVED'
+  );
+  const blockedByApprovals = !estimateOk || !wheelsOk;
+
+  const car = Array.isArray((caseRow as { cars: unknown }).cars)
+    ? (caseRow as { cars: { license_plate: string }[] }).cars[0]
+    : (caseRow as { cars: { license_plate: string } | null }).cars;
+
+  return (
+    <ClosureDetailClient
+      caseId={id}
+      caseKey={(caseRow as { case_key: string | null }).case_key}
+      plate={car?.license_plate ?? '—'}
+      steps={steps}
+      blockedByExtras={blockedByExtras}
+      blockedByApprovals={blockedByApprovals}
+      canClose={profile?.role === 'OFFICE' || profile?.role === 'CEO'}
+    />
+  );
+}

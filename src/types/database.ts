@@ -64,6 +64,7 @@ export interface Car {
   model: string | null;
   year: number | null;
   vin: string | null;
+  first_registration_date: string | null; // DATE as ISO string
   created_at: string;
   updated_at: string;
 }
@@ -72,11 +73,15 @@ export interface Case {
   id: string;
   branch_id: string;
   car_id: string;
+  case_key: string | null;
+  claim_number: string | null;
   general_status: GeneralStatus;
   parts_status: PartsStatus;
   insurance_type: InsuranceType | null;
   claim_type: ClaimType | null;
   fixcar_link: string | null;
+  opened_at: string | null;
+  treatment_finished_at: string | null;
   closed_at: string | null;
   created_at: string;
   updated_at: string;
@@ -98,6 +103,7 @@ export interface CaseWorkflowStep {
   state: StepState;
   order_index: number;
   completed_at: string | null;
+  completed_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -109,6 +115,7 @@ export interface CeoApproval {
   status: ApprovalStatus;
   rejection_note: string | null;
   decided_at: string | null;
+  decided_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -171,6 +178,52 @@ export const CLOSURE_WORKFLOW_STEPS = [
 export type ClosureStepKey = (typeof CLOSURE_WORKFLOW_STEPS)[number];
 
 export type WorkflowStepKey = ProfessionalStepKey | ClosureStepKey;
+
+// Audit event action types (for action field)
+export type AuditActionType =
+  | 'CASE_CREATED'
+  | 'CASE_CLOSED'
+  | 'STEP_ACTIVATED'
+  | 'STEP_COMPLETED'
+  | 'STEP_SKIPPED'
+  | 'EXTRA_CREATED'
+  | 'EXTRA_STATUS_CHANGED'
+  | 'APPROVAL_APPROVED'
+  | 'APPROVAL_REJECTED'
+  | 'BLOCKED_ACTION'
+  | 'RETURNED_TO_ESTIMATE';
+
+// DTOs for actions
+export interface CreateCaseInput {
+  plate_number: string;
+  claim_number?: string | null;
+  first_registration_date: string; // ISO date
+  insurance_type?: InsuranceType | null;
+  claim_type?: ClaimType | null;
+  branch_id: string;
+}
+
+export interface CompleteStepInput {
+  case_id: string;
+  step_id?: string; // optional: complete current active step
+}
+
+export interface CreateExtraInput {
+  case_id: string;
+  description: string;
+  image_path: string; // Storage path after upload
+}
+
+export interface ApprovalDecisionInput {
+  approval_id: string;
+  status: 'APPROVED' | 'REJECTED';
+  rejection_note?: string | null;
+}
+
+export interface UpdateExtraStatusInput {
+  extra_id: string;
+  status: ExtraStatus;
+}
 
 // Supabase generated types (for use with supabase.from<>())
 export type Database = {

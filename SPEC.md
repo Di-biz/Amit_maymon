@@ -106,6 +106,14 @@ Branch-based access control is enforced (RLS).
 
 ---
 
+## Environment
+
+Use `.env.local` (never commit):
+
+- `NEXT_PUBLIC_SUPABASE_URL` — project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — anon key (client-safe)
+- `SUPABASE_SERVICE_ROLE_KEY` — only for server-side admin if needed; do not expose to client
+
 ## Auth
 
 - Supabase Email + Password

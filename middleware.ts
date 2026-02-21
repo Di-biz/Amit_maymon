@@ -3,6 +3,12 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 type CookieToSet = { name: string; value: string };
 
+const APP_PATHS = ['/cases', '/closure', '/approvals', '/extras', '/notifications'];
+
+function isAppPath(pathname: string) {
+  return APP_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
+}
+
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
     request: { headers: request.headers },
@@ -25,7 +31,12 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (isAppPath(request.nextUrl.pathname) && !user) {
+    const loginUrl = new URL('/login', request.url);
+    return NextResponse.redirect(loginUrl);
+  }
 
   return response;
 }
