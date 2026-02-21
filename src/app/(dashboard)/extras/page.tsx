@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
+import type { ExtraStatus } from '@/types/database';
 import { ExtrasManagerList } from './ExtrasManagerList';
 
 export default async function ExtrasPage() {
@@ -74,7 +75,7 @@ export default async function ExtrasPage() {
       case_id: row.case_id,
       description: row.description,
       image_path: row.image_path,
-      status: row.status,
+      status: row.status as ExtraStatus,
       created_at: row.created_at,
       case_key: c?.case_key ?? null,
       plate: car?.license_plate ?? '—',
