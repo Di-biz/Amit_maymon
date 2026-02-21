@@ -33,7 +33,7 @@ export async function decideApproval(input: ApprovalDecisionInput) {
       rejection_note: input.status === 'REJECTED' ? input.rejection_note ?? null : null,
       decided_at: now,
       decided_by: user.id,
-    })
+    } as never)
     .eq('id', input.approval_id);
 
   if (updateErr) return { error: updateErr.message };
