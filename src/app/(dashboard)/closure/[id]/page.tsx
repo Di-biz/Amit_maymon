@@ -91,15 +91,16 @@ export default async function ClosureDetailPage({ params }: { params: Promise<{ 
     .eq('status', 'IN_TREATMENT');
   const blockedByExtras = (extras?.length ?? 0) > 0;
 
-  const { data: approvals } = await supabase
+  const { data: approvalsData } = await supabase
     .from('ceo_approvals')
     .select('approval_type, status')
     .eq('case_id', id);
-  const estimateOk = (approvals ?? []).some(
+  const approvals = (approvalsData ?? []) as { approval_type: string; status: string }[];
+  const estimateOk = approvals.some(
     (a) => a.approval_type === 'ESTIMATE_AND_DETAILS' && a.status === 'APPROVED'
   );
-  const wheelsDone = (approvals ?? []).some((a) => a.approval_type === 'WHEELS_CHECK');
-  const wheelsOk = !wheelsDone || (approvals ?? []).some(
+  const wheelsDone = approvals.some((a) => a.approval_type === 'WHEELS_CHECK');
+  const wheelsOk = !wheelsDone || approvals.some(
     (a) => a.approval_type === 'WHEELS_CHECK' && a.status === 'APPROVED'
   );
   const blockedByApprovals = !estimateOk || !wheelsOk;
