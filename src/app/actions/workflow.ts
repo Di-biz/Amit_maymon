@@ -109,7 +109,8 @@ export async function createCase(input: CreateCaseInput) {
     .single();
 
   if (caseErr || !newCase) return { error: caseErr?.message ?? 'שגיאה ביצירת תיק' };
-  const caseId = newCase.id;
+  const caseId = (newCase as { id: string }).id;
+  if (!caseId) return { error: 'לא התקבל מזהה תיק' };
 
   const { data: run, error: runErr } = await supabase
     .from('case_workflow_runs')
@@ -129,17 +130,23 @@ export async function createCase(input: CreateCaseInput) {
 
   for (let i = 0; i < PROFESSIONAL_WORKFLOW_STEPS.length; i++) {
     const stepKey = PROFESSIONAL_WORKFLOW_STEPS[i];
-    let state: 'PENDING' | 'ACTIVE' | 'DONE' | 'SKIPPED' = 'PENDING';
+    let state: 'PENDING' | 'ACTIVE' | 'DONE' | 'SKIPPED' = 'ACTIVE'; // All steps start as ACTIVE for testing
     let completedAt: string | null = null;
+    let activatedAt: string | null = openedAt;
 
     if (stepKey === 'OPEN_CASE') {
       state = 'DONE';
       completedAt = openedAt;
-    } else if (stepKey === 'FIXCAR_PHOTOS') {
-      state = 'ACTIVE';
+      activatedAt = openedAt;
     } else if (stepKey === 'WHEELS_CHECK' && skipWheels) {
       state = 'SKIPPED';
       completedAt = openedAt;
+      activatedAt = null;
+    } else {
+      // All other steps should be ACTIVE
+      state = 'ACTIVE';
+      activatedAt = openedAt;
+      completedAt = null;
     }
 
     await supabase.from('case_workflow_steps').insert({
@@ -147,7 +154,7 @@ export async function createCase(input: CreateCaseInput) {
       step_key: stepKey,
       state,
       order_index: i,
-      activated_at: state === 'ACTIVE' ? openedAt : null,
+      activated_at: activatedAt,
       completed_at: completedAt,
     });
   }
@@ -169,7 +176,7 @@ export async function createCase(input: CreateCaseInput) {
       });
   }
 
-  return { caseId };
+  return { caseId: String(caseId) };
 }
 
 export async function completeActiveStep(caseId: string) {
@@ -206,12 +213,14 @@ export async function completeActiveStep(caseId: string) {
   if (isClosure && role !== 'OFFICE') return { error: 'רק משרד יכול להשלים שלבי סגירה' };
   if (!isClosure && role !== 'SERVICE_MANAGER') return { error: 'רק מנהל שירות יכול להשלים שלב' };
 
-  const { data: activeStep } = await supabase
+  const { data: activeSteps } = await supabase
     .from('case_workflow_steps')
     .select('id, step_key, order_index')
     .eq('run_id', run.id)
     .eq('state', 'ACTIVE')
-    .maybeSingle();
+    .order('order_index', { ascending: true })
+    .limit(1);
+  const activeStep = activeSteps && activeSteps.length > 0 ? activeSteps[0] : null;
   if (!activeStep) return { error: 'אין שלב פעיל להשלמה' };
 
   const stepKey = activeStep.step_key;

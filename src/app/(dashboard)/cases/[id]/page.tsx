@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect, notFound } from 'next/navigation';
 import type { PartsStatus, GeneralStatus } from '@/types/database';
+import { PROFESSIONAL_WORKFLOW_STEPS } from '@/types/database';
 import { CaseDetailClient } from './CaseDetailClient';
 
 export default async function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -45,6 +46,45 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   const branchId = (caseRow as { branch_id: string }).branch_id;
   if (profile?.role !== 'CEO' && profile?.branch_id !== branchId) notFound();
 
+  // CRITICAL FIX: Load steps by case_id (through all runs) to find steps even if run_id changes
+  // First, get all runs for this case
+  const { data: allRuns } = await supabase
+    .from('case_workflow_runs')
+    .select('id')
+    .eq('case_id', id)
+    .eq('workflow_type', 'PROFESSIONAL');
+  
+  let steps: { id: string; step_key: string; state: string; order_index: number }[] = [];
+  
+  if (allRuns && allRuns.length > 0) {
+    // Get all run IDs for this case
+    const runIds = allRuns.map((r) => (r as { id: string }).id);
+    // Load steps for any of these runs
+    const { data: stepsData } = await supabase
+      .from('case_workflow_steps')
+      .select('id, step_key, state, order_index')
+      .in('run_id', runIds)
+      .order('order_index');
+    steps = stepsData ?? [];
+    
+    // DEBUG: Log what we found
+    if (process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true') {
+      console.log('[CASE DETAIL PAGE] Loaded steps by case_id:', {
+        caseId: id,
+        allRunsCount: allRuns.length,
+        runIds,
+        stepsCount: steps.length,
+        steps: steps.map(s => ({ step_key: s.step_key, state: s.state })),
+      });
+    }
+  } else {
+    // DEBUG: Log if no runs found
+    if (process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true') {
+      console.log('[CASE DETAIL PAGE] No runs found for case:', id);
+    }
+  }
+  
+  // Get the active run for display
   const { data: runData } = await supabase
     .from('case_workflow_runs')
     .select('id')
@@ -52,16 +92,140 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
     .eq('workflow_type', 'PROFESSIONAL')
     .eq('status', 'ACTIVE')
     .maybeSingle();
-
+  
   const run = runData as { id: string } | null;
-  let steps: { id: string; step_key: string; state: string; order_index: number }[] = [];
-  if (run) {
+  
+  // DEBUG: Log run status
+  if (process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true') {
+    console.log('[CASE DETAIL PAGE] Run check:', {
+      caseId: id,
+      hasRun: !!run,
+      runId: run?.id,
+      stepsCount: steps.length,
+    });
+  }
+  
+  // CRITICAL FIX: In PREVIEW mode, use the first run we found (don't create a new one)
+  // This prevents creating duplicate runs that break the step lookup
+  let actualRun = run;
+  if (process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true') {
+    // If we have runs but no active run, use the first one
+    if (!run && allRuns && allRuns.length > 0) {
+      actualRun = { id: (allRuns[0] as { id: string }).id };
+      console.log('[CASE DETAIL PAGE] Using existing run instead of creating new one:', actualRun.id);
+    } else if (!run) {
+      // Only create a new run if there are NO runs at all
+      console.log('[CASE DETAIL PAGE] No run found, creating one for case:', id);
+      const { data: newRunData } = await supabase
+        .from('case_workflow_runs')
+        .insert({
+          case_id: id,
+          workflow_type: 'PROFESSIONAL',
+          status: 'ACTIVE',
+        } as never)
+        .select('id')
+        .single();
+      if (newRunData) {
+        actualRun = newRunData as { id: string };
+        console.log('[CASE DETAIL PAGE] Created new run:', actualRun.id);
+      }
+    }
+  }
+  
+  // If we still have no steps but have a run, try loading by run_id
+  if (actualRun && steps.length === 0) {
     const { data: stepsData } = await supabase
       .from('case_workflow_steps')
       .select('id, step_key, state, order_index')
-      .eq('run_id', run.id)
+      .eq('run_id', actualRun.id)
       .order('order_index');
     steps = stepsData ?? [];
+    
+    // DEBUG: Log if no steps found
+    if (process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true') {
+      console.log('[CASE DETAIL PAGE] Steps check:', {
+        runId: actualRun.id,
+        stepsCount: steps.length,
+        hasRun: !!actualRun,
+      });
+    }
+    
+    // CRITICAL FIX: If we have a run but no steps, create them (PREVIEW mode only)
+    // This happens because steps are created on server but not saved to localStorage
+    if (process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true' && steps.length === 0) {
+      console.log('[CASE DETAIL PAGE] Creating missing workflow steps for run:', actualRun.id);
+      const openedAt = (caseRow as { opened_at: string | null }).opened_at || new Date().toISOString();
+      // Extract car data from caseRow
+      const carData = Array.isArray((caseRow as { cars: unknown }).cars)
+        ? (caseRow as { cars: { license_plate: string; first_registration_date: string | null }[] }).cars[0]
+        : (caseRow as { cars: { license_plate: string; first_registration_date: string | null } | null }).cars;
+      const firstReg = carData?.first_registration_date ?? null;
+      const age = firstReg ? (Date.now() - new Date(firstReg).getTime()) / (365.25 * 24 * 60 * 60 * 1000) : null;
+      const skipWheels = age !== null && age <= 2;
+      
+      // Create all steps with correct states
+      for (let i = 0; i < PROFESSIONAL_WORKFLOW_STEPS.length; i++) {
+        const stepKey = PROFESSIONAL_WORKFLOW_STEPS[i];
+        let state: 'PENDING' | 'ACTIVE' | 'DONE' | 'SKIPPED' = 'ACTIVE';
+        let completedAt: string | null = null;
+        let activatedAt: string | null = openedAt;
+        
+        if (stepKey === 'OPEN_CASE') {
+          state = 'DONE';
+          completedAt = openedAt;
+          activatedAt = openedAt;
+        } else if (stepKey === 'WHEELS_CHECK' && skipWheels) {
+          state = 'SKIPPED';
+          completedAt = openedAt;
+          activatedAt = null;
+        } else {
+          state = 'ACTIVE';
+          activatedAt = openedAt;
+          completedAt = null;
+        }
+        
+        await supabase.from('case_workflow_steps').insert({
+          run_id: actualRun.id,
+          step_key: stepKey,
+          state,
+          order_index: i,
+          activated_at: activatedAt,
+          completed_at: completedAt,
+        } as never);
+      }
+      
+      // Reload steps after creating them
+      const { data: newStepsData } = await supabase
+        .from('case_workflow_steps')
+        .select('id, step_key, state, order_index')
+        .eq('run_id', actualRun.id)
+        .order('order_index');
+      steps = newStepsData ?? [];
+      
+      // DEBUG: Log after creating steps
+      if (process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true') {
+        console.log('[CASE DETAIL PAGE] Created and loaded steps:', {
+          runId: actualRun.id,
+          stepsCount: steps.length,
+          steps: steps.map(s => ({ step_key: s.step_key, state: s.state })),
+        });
+      }
+    }
+    
+    // DEBUG: Log steps loading
+    if (process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true') {
+      console.log('[CASE DETAIL PAGE] Loaded steps:', {
+        runId: actualRun.id,
+        caseId: id,
+        stepsCount: steps.length,
+        steps: steps.map(s => ({ step_key: s.step_key, state: s.state })),
+      });
+    }
+  } else {
+    // DEBUG: Log if run not found (and couldn't create one)
+    if (process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true') {
+      console.warn('[CASE DETAIL PAGE] No workflow run found for case and couldn\'t create one:', id);
+    }
   }
 
   const { data: approvals } = await supabase

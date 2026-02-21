@@ -103,26 +103,50 @@ export default async function CasesPage() {
     branches = b ?? [];
   }
 
+  const totalCases = casesWithMeta.length;
+  const casesWithBlockers = casesWithMeta.filter((c) => 
+    caseIdsWithExtras.has(c.id) || caseIdsApprovalBlocked.has(c.id)
+  ).length;
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold">תיקים פתוחים</h1>
-        {canCreate && (
-          <CreateCaseButton
-            branchId={branchId}
-            branches={branches}
-            isCeo={isCeo}
-          />
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <span className="text-4xl">📁</span>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-800">תיקים פתוחים</h1>
+              <p className="text-gray-600 text-sm mt-1">
+                {totalCases} תיקים פעילים {casesWithBlockers > 0 && `• ${casesWithBlockers} עם חסימות`}
+              </p>
+            </div>
+          </div>
+          {canCreate && (
+            <CreateCaseButton
+              branchId={branchId}
+              branches={branches}
+              isCeo={isCeo}
+            />
+          )}
+        </div>
+        {role === 'SERVICE_MANAGER' && (
+          <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-4">
+            <p className="text-sm text-blue-800 font-medium">
+              💡 <strong>ערן:</strong> לחץ על תיק כדי לראות את הצ'קליסט עבודה ולסמן שלבים כבוצעים
+            </p>
+          </div>
         )}
       </div>
-      <CasesTable
-        cases={casesWithMeta.map((c) => ({
-          ...c,
-          hasExtrasInTreatment: caseIdsWithExtras.has(c.id),
-          approvalBlocked: caseIdsApprovalBlocked.has(c.id),
-        }))}
-        role={role}
-      />
+      <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
+        <CasesTable
+          cases={casesWithMeta.map((c) => ({
+            ...c,
+            hasExtrasInTreatment: caseIdsWithExtras.has(c.id),
+            approvalBlocked: caseIdsApprovalBlocked.has(c.id),
+          }))}
+          role={role}
+        />
+      </div>
     </div>
   );
 }

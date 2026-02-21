@@ -86,30 +86,42 @@ export default async function DashboardLayout({
           מצב תצוגה מקדימה — ללא התחברות וללא מסד נתונים. הנתונים להמחשה בלבד.
         </div>
       )}
-      <header className="border-b bg-white px-4 py-2 flex items-center justify-between">
-        <span className="font-bold">CRM תהילה</span>
-        <div className="flex items-center gap-4 text-sm">
-          <span>{profile?.full_name ?? user.email}</span>
-          <span className="text-gray-500">{roleLabel}</span>
-          <span className="text-gray-500">{branchName}</span>
-          <a href="/logout" className="text-blue-600 underline">
-            התנתק
-          </a>
+      <header className="border-b bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-4 shadow-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🚗</span>
+            <span className="font-bold text-xl">CRM תהילה</span>
+          </div>
+          <div className="flex items-center gap-4 text-sm">
+            <div className="bg-white/20 px-3 py-1 rounded-full">
+              <span className="font-medium">{profile?.full_name ?? user.email}</span>
+            </div>
+            <div className="bg-white/20 px-3 py-1 rounded-full">
+              <span>{roleLabel}</span>
+            </div>
+            <div className="bg-white/20 px-3 py-1 rounded-full">
+              <span>{branchName}</span>
+            </div>
+            <a href="/logout" className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full transition-colors">
+              התנתק
+            </a>
+          </div>
         </div>
       </header>
       <div className="flex flex-1">
-        <aside className="w-48 border-l bg-gray-50 p-3 flex flex-col gap-1">
+        <aside className="w-56 border-l bg-gradient-to-b from-gray-50 to-white p-4 flex flex-col gap-2 shadow-sm">
           {links.map(({ label, href }) => (
             <Link
               key={href}
               href={href}
-              className="px-3 py-2 rounded hover:bg-gray-200 text-sm"
+              className="px-4 py-3 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 text-sm font-medium transition-all hover:shadow-md flex items-center gap-2 group"
             >
-              {label}
+              <span className="group-hover:scale-110 transition-transform">→</span>
+              <span>{label}</span>
             </Link>
           ))}
         </aside>
-        <main className="flex-1 p-4 bg-gray-100">{children}</main>
+        <main className="flex-1 p-6 bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">{children}</main>
       </div>
     </div>
   );

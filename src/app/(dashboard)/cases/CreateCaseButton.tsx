@@ -32,6 +32,41 @@ export function CreateCaseButton({
     branch_id: branchId ?? (branches[0]?.id ?? ''),
   });
 
+  function generateRandomValues() {
+    // Generate random plate number (Israeli format: 2-3 digits, 2-3 letters, 1-2 digits)
+    const digits1 = Math.floor(Math.random() * 90) + 10; // 10-99
+    const letters = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט', 'י', 'כ', 'ל', 'מ', 'נ', 'ס', 'ע', 'פ', 'צ', 'ק', 'ר', 'ש', 'ת'];
+    const letter1 = letters[Math.floor(Math.random() * letters.length)];
+    const letter2 = letters[Math.floor(Math.random() * letters.length)];
+    const digits2 = Math.floor(Math.random() * 90) + 10; // 10-99
+    const plate_number = `${digits1}${letter1}${letter2}${digits2}`;
+    
+    // Generate random claim number
+    const claim_number = `CLM-${Math.floor(Math.random() * 90000) + 10000}`;
+    
+    // Generate random registration date (between 0-15 years ago)
+    const yearsAgo = Math.floor(Math.random() * 16);
+    const registrationDate = new Date();
+    registrationDate.setFullYear(registrationDate.getFullYear() - yearsAgo);
+    const first_registration_date = registrationDate.toISOString().split('T')[0];
+    
+    // Random insurance type
+    const insuranceTypes: InsuranceType[] = ['COMPREHENSIVE', 'THIRD_PARTY', 'PRIVATE', 'OTHER'];
+    const insurance_type = insuranceTypes[Math.floor(Math.random() * insuranceTypes.length)] as InsuranceType;
+    
+    // Random claim type
+    const claimTypes: ClaimType[] = ['PRIVATE', 'ACCIDENT', 'FLOOD'];
+    const claim_type = claimTypes[Math.floor(Math.random() * claimTypes.length)] as ClaimType;
+    
+    return {
+      plate_number,
+      claim_number,
+      first_registration_date,
+      insurance_type,
+      claim_type,
+    };
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -49,6 +84,10 @@ export function CreateCaseButton({
       setError(res.error);
       return;
     }
+    
+    // Get the caseId from the response
+    const newCaseId = res?.caseId;
+    
     setOpen(false);
     setForm({
       plate_number: '',
@@ -58,18 +97,56 @@ export function CreateCaseButton({
       claim_type: '',
       branch_id: branchId ?? branches[0]?.id ?? '',
     });
+    
+    // Refresh the cases page to show the new case
+    // In PREVIEW mode, the case might not be immediately available, so we just refresh
+    router.push('/cases');
+    router.refresh();
+  }
+
+  async function handleRandomSubmit() {
+    setError(null);
+    setLoading(true);
+    const randomValues = generateRandomValues();
+    const res = await createCase({
+      plate_number: randomValues.plate_number,
+      claim_number: randomValues.claim_number,
+      first_registration_date: randomValues.first_registration_date,
+      insurance_type: randomValues.insurance_type,
+      claim_type: randomValues.claim_type,
+      branch_id: branchId ?? branches[0]?.id ?? '',
+    });
+    setLoading(false);
+    if (res?.error) {
+      setError(res.error);
+      return;
+    }
+    
+    // Refresh the cases page to show the new case
+    router.push('/cases');
     router.refresh();
   }
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
-      >
-        פתיחת תיק
-      </button>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+        >
+          פתיחת תיק
+        </button>
+        <button
+          type="button"
+          onClick={handleRandomSubmit}
+          disabled={loading}
+          className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm disabled:opacity-50"
+          title="יוצר תיק חדש עם ערכים רנדומליים"
+        >
+          {loading ? 'יוצר...' : '🎲 תיק רנדומלי'}
+        </button>
+      </div>
       {open && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
