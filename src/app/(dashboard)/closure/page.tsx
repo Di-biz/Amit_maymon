@@ -46,14 +46,14 @@ export default async function ClosurePage() {
   const { data: casesRows } = await casesQuery;
 
   const runIds = await (async () => {
-    if (!casesRows?.length) return [];
-    const { data: runs } = await supabase
+    if (!casesRows?.length) return [] as { id: string; case_id: string }[];
+    const { data: runsData } = await supabase
       .from('case_workflow_runs')
       .select('id, case_id')
       .in('case_id', casesRows.map((c) => (c as { id: string }).id))
       .eq('workflow_type', 'PROFESSIONAL')
       .eq('status', 'COMPLETED');
-    return runs ?? [];
+    return (runsData ?? []) as { id: string; case_id: string }[];
   })();
 
   const readyCaseIds = new Set(runIds.map((r) => r.case_id));
