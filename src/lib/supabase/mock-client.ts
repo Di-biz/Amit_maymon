@@ -110,9 +110,9 @@ declare global {
 }
 
 // Create a mutable store that starts with preview data but can be updated
-// Use global store if it exists, otherwise create new one
+// Use global store if it exists AND has correct structure, otherwise create new one
 let mutableStore: ReturnType<typeof getPreviewStore>;
-if (typeof globalThis !== 'undefined' && globalThis.__mockStore) {
+if (typeof globalThis !== 'undefined' && globalThis.__mockStore && 'case_workflow_runs' in globalThis.__mockStore) {
   mutableStore = globalThis.__mockStore;
 } else {
   mutableStore = getPreviewStore();
@@ -134,10 +134,15 @@ function filterIsNull<T extends Record<string, unknown>>(rows: T[], key: string)
   return rows.filter((r) => r[key] == null);
 }
 
-function pick<T extends Record<string, unknown>>(row: T, keys: string[]): Record<string, unknown> {
+function pick<T extends Record<string, unknown>>(row: T, keys: string[], tableName?: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const k of keys) {
     if (k in row) out[k] = row[k];
+  }
+  // CRITICAL FIX: For workflow steps, ALWAYS include step_key if it exists in the row
+  // This ensures step_key is never lost, even if not explicitly in the select clause
+  if (tableName === 'case_workflow_steps' && row.step_key !== undefined && row.step_key !== null && !out.step_key) {
+    out.step_key = row.step_key;
   }
   return out;
 }
@@ -147,7 +152,7 @@ function expandCars(row: Record<string, unknown>, selectCarKeys: string[]): Reco
   if (!carId) return { ...row, cars: null };
   const car = (mutableStore.cars as Record<string, unknown>[]).find((c) => c.id === carId);
   if (!car) return { ...row, cars: null };
-  const carRow = pick(car as unknown as Record<string, unknown>, selectCarKeys);
+  const carRow = pick(car as unknown as Record<string, unknown>, selectCarKeys, 'cars');
   return { ...row, cars: carRow };
 }
 
@@ -156,7 +161,7 @@ function expandBranches(row: Record<string, unknown>, selectBranchKeys: string[]
   if (!branchId) return { ...row, branches: null };
   const branch = (mutableStore.branches as Record<string, unknown>[]).find((b) => b.id === branchId);
   if (!branch) return { ...row, branches: null };
-  return { ...row, branches: pick(branch as unknown as Record<string, unknown>, selectBranchKeys) };
+  return { ...row, branches: pick(branch as unknown as Record<string, unknown>, selectBranchKeys, 'branches') };
 }
 
 function expandCases(row: Record<string, unknown>, caseSelect: string): Record<string, unknown> {
@@ -169,7 +174,7 @@ function expandCases(row: Record<string, unknown>, caseSelect: string): Record<s
     const carKeys = caseSelect.includes('license_plate') ? ['license_plate'] : [];
     const carId = caseRow.car_id as string;
     const car = (mutableStore.cars as Record<string, unknown>[]).find((x) => x.id === carId);
-    c = { ...c, cars: car ? pick(car as unknown as Record<string, unknown>, carKeys) : null };
+    c = { ...c, cars: car ? pick(car as unknown as Record<string, unknown>, carKeys, 'cars') : null };
   }
   if (caseSelect.includes('branches(')) c = expandBranches(c, ['name']);
   return { ...row, cases: c };
@@ -189,12 +194,12 @@ function runQuery(
   }
 ): { data: unknown; error: null } {
   let rows: Record<string, unknown>[] = [];
-  // CRITICAL: For workflow steps, start with empty array, not preview data
-  // This ensures new cases don't inherit incorrect states from preview data
+  // CRITICAL: For workflow steps, start with items from mutableStore (which may be empty)
+  // We'll merge with localStorage items below
   let raw: Record<string, unknown>[] | undefined;
   if (table === 'case_workflow_steps') {
-    // Start with empty array - we'll load from mutableStore and localStorage only
-    raw = [];
+    // Start with items from mutableStore (may be empty initially)
+    raw = (mutableStore[table] as Record<string, unknown>[] | undefined) || [];
   } else {
     raw = mutableStore[table] as Record<string, unknown>[] | undefined;
   }
@@ -216,117 +221,155 @@ function runQuery(
     try {
       const key = `mock_${table}`;
       const stored = localStorage.getItem(key);
-      if (stored) {
-        const storedItems = JSON.parse(stored) as Record<string, unknown>[];
+      
+      // For workflow steps, ALWAYS load from both mutableStore and localStorage
+      if (table === 'case_workflow_steps') {
+        // Get items from mutableStore (which has new cases created on server or client)
+        const mutableItems = (mutableStore[table] as Record<string, unknown>[] | undefined) || [];
+        const mutableIds = new Set(mutableItems.map((item) => item.id));
         
-        // For workflow steps, merge: mutableStore (new cases) > localStorage
-        if (table === 'case_workflow_steps') {
-          // Get items from mutableStore (which has new cases created on server)
-          const mutableItems = (mutableStore[table] as Record<string, unknown>[] | undefined) || [];
-          const mutableIds = new Set(mutableItems.map((item) => item.id));
-          
-          // CRITICAL FIX: Filter out localStorage items that don't have step_key
-          // These are corrupted and should be ignored
-          const validLocalStorageItems = storedItems.filter((item) => {
-            const hasStepKey = item.step_key && item.step_key !== undefined && item.step_key !== null;
-            if (!hasStepKey) {
-              if (typeof window !== 'undefined') {
+        // Load from localStorage if available
+        let localStorageItems: Record<string, unknown>[] = [];
+        if (stored) {
+          try {
+            const storedItems = JSON.parse(stored) as Record<string, unknown>[];
+            
+            // CRITICAL FIX: Filter out localStorage items that don't have step_key
+            // These are corrupted and should be ignored
+            const validLocalStorageItems = storedItems.filter((item) => {
+              const hasStepKey = item.step_key && item.step_key !== undefined && item.step_key !== null;
+              if (!hasStepKey) {
                 console.warn('[MOCK CLIENT] Filtering out corrupted step without step_key:', item.id);
               }
-            }
-            return hasStepKey;
-          });
-          
-          // Add localStorage items that aren't in mutableStore and have step_key
-          const localStorageItems = validLocalStorageItems.filter((item) => !mutableIds.has(item.id));
-          
-          // CRITICAL: Don't load preview items for workflow steps - only use new cases
-          // This prevents loading incorrect states from preview data
-          // Combine: mutableStore first (new cases), then localStorage only
-          raw = [...mutableItems, ...localStorageItems];
-          mutableStore[table] = raw as unknown;
-          
-          // DEBUG: Log what we're loading
-          if (typeof window !== 'undefined') {
-            console.log('[MOCK CLIENT] Loading workflow steps:', {
-              fromMutableStore: mutableItems.length,
-              fromLocalStorage: localStorageItems.length,
-              total: raw.length,
-              mutableItems: mutableItems.map((item: Record<string, unknown>) => ({
-                step_key: item.step_key,
-                state: item.state,
-                run_id: item.run_id,
-              })),
-              localStorageItems: localStorageItems.map((item: Record<string, unknown>) => ({
-                step_key: item.step_key,
-                state: item.state,
-                run_id: item.run_id,
-              })),
+              return hasStepKey;
             });
+            
+            // Add localStorage items that aren't in mutableStore and have step_key
+            localStorageItems = validLocalStorageItems.filter((item) => !mutableIds.has(item.id));
+          } catch (e) {
+            console.error('[MOCK CLIENT] Error parsing localStorage for workflow steps:', e);
           }
-          
-          // Fix any incorrect states in ALL items (both from localStorage and preview)
-          let needsUpdate = false;
-          raw = raw.map((item) => {
-            // Fix steps that are incorrectly marked as DONE
-            if (item.step_key !== 'OPEN_CASE' && item.state === 'DONE') {
-              if (!item.completed_at) {
-                needsUpdate = true;
-                return {
-                  ...item,
-                  state: 'ACTIVE',
-                  activated_at: item.activated_at || new Date().toISOString(),
-                  completed_at: null,
-                  completed_by: null,
-                };
-              }
-            }
-            // Fix PENDING steps that should be ACTIVE (for new cases)
-            if (item.state === 'PENDING' && !item.completed_at && item.step_key !== 'OPEN_CASE') {
+        }
+        
+        // CRITICAL: Combine mutableStore (new cases) with localStorage items
+        // This ensures all steps are available, whether created on server or client
+        raw = [...mutableItems, ...localStorageItems];
+        // Update mutableStore with all items so they're available for future queries
+        mutableStore[table] = raw as unknown;
+        
+        // DEBUG: Log what we're loading
+        try {
+          const storedForDebug = localStorage.getItem('mock_case_workflow_steps');
+          const allStoredItems = storedForDebug ? JSON.parse(storedForDebug) : [];
+          console.log('[MOCK CLIENT] Loading workflow steps:', {
+            fromMutableStore: mutableItems.length,
+            fromLocalStorage: localStorageItems.length,
+            total: raw.length,
+            totalInLocalStorage: allStoredItems.length,
+            hasStored: !!stored,
+            mutableItems: mutableItems.map((item: Record<string, unknown>) => ({
+              id: item.id,
+              step_key: item.step_key,
+              state: item.state,
+              run_id: item.run_id,
+              hasStepKey: !!item.step_key,
+              allKeys: Object.keys(item),
+            })),
+            localStorageItems: localStorageItems.map((item: Record<string, unknown>) => ({
+              id: item.id,
+              step_key: item.step_key,
+              state: item.state,
+              run_id: item.run_id,
+              hasStepKey: !!item.step_key,
+              allKeys: Object.keys(item),
+            })),
+            allStoredItems: allStoredItems.map((item: Record<string, unknown>) => ({
+              id: item.id,
+              step_key: item.step_key,
+              run_id: item.run_id,
+              hasStepKey: !!item.step_key,
+            })),
+          });
+        } catch (e) {
+          console.error('[MOCK CLIENT] Error reading localStorage for debug:', e);
+        }
+        
+        // Fix any incorrect states in ALL items (both from localStorage and preview)
+        let needsUpdate = false;
+        raw = raw.map((item) => {
+          // Fix steps that are incorrectly marked as DONE
+          if (item.step_key !== 'OPEN_CASE' && item.state === 'DONE') {
+            if (!item.completed_at) {
               needsUpdate = true;
               return {
                 ...item,
                 state: 'ACTIVE',
                 activated_at: item.activated_at || new Date().toISOString(),
+                completed_at: null,
+                completed_by: null,
               };
             }
-            // Ensure ACTIVE steps have activated_at
-            if (item.state === 'ACTIVE' && !item.activated_at) {
-              needsUpdate = true;
-              return {
-                ...item,
-                activated_at: item.activated_at || new Date().toISOString(),
-              };
+          }
+          // Fix PENDING steps that should be ACTIVE (for new cases)
+          if (item.state === 'PENDING' && !item.completed_at && item.step_key !== 'OPEN_CASE') {
+            needsUpdate = true;
+            return {
+              ...item,
+              state: 'ACTIVE',
+              activated_at: item.activated_at || new Date().toISOString(),
+            };
+          }
+          // Ensure ACTIVE steps have activated_at
+          if (item.state === 'ACTIVE' && !item.activated_at) {
+            needsUpdate = true;
+            return {
+              ...item,
+              activated_at: item.activated_at || new Date().toISOString(),
+            };
+          }
+          return item;
+        });
+        
+        // Update localStorage with ALL items (including new ones from mutableStore)
+        // This ensures new cases are persisted across page reloads
+        try {
+          // Save all items that are in mutableStore (new cases) or were in localStorage
+          const mutableIds = new Set(mutableItems.map((item) => item.id));
+          let storedIds = new Set<string>();
+          if (stored) {
+            try {
+              const parsedStoredItems = JSON.parse(stored) as Record<string, unknown>[];
+              storedIds = new Set(parsedStoredItems.map((item) => item.id as string));
+            } catch (e) {
+              // Ignore parse errors
             }
-            return item;
-          });
-          
-          // Update localStorage with ALL items (including new ones from mutableStore)
-          // This ensures new cases are persisted across page reloads
+          }
+          const itemsToSave = raw.filter((item) => mutableIds.has(item.id) || storedIds.has(item.id as string));
+          localStorage.setItem(key, JSON.stringify(itemsToSave));
+          if (needsUpdate) {
+            console.log('[MOCK CLIENT] Updated workflow steps in localStorage with fixes');
+          }
+        } catch (e) {
+          // Ignore localStorage errors
+        }
+      } else {
+        // For other tables, merge as before
+        if (stored) {
           try {
-            // Save all items that are in mutableStore (new cases) or were in localStorage
-            const mutableIds = new Set(mutableItems.map((item) => item.id));
-            const storedIds = new Set(storedItems.map((item) => item.id));
-            const itemsToSave = raw.filter((item) => mutableIds.has(item.id) || storedIds.has(item.id));
-            localStorage.setItem(key, JSON.stringify(itemsToSave));
-            if (needsUpdate) {
-              console.log('[MOCK CLIENT] Updated workflow steps in localStorage with fixes');
+            const storedItems = JSON.parse(stored) as Record<string, unknown>[];
+            const existingIds = new Set((raw || []).map((r) => r.id));
+            const newItems = storedItems.filter((item) => !existingIds.has(item.id));
+            if (newItems.length > 0 && raw) {
+              raw = [...raw, ...newItems];
+              mutableStore[table] = raw as unknown;
             }
           } catch (e) {
-            // Ignore localStorage errors
-          }
-        } else if (table !== 'case_workflow_steps') {
-          // For other tables, merge as before
-          const existingIds = new Set((raw || []).map((r) => r.id));
-          const newItems = storedItems.filter((item) => !existingIds.has(item.id));
-          if (newItems.length > 0 && raw) {
-            raw = [...raw, ...newItems];
-            mutableStore[table] = raw as unknown;
+            console.error('[MOCK CLIENT] Error parsing localStorage for', table, ':', e);
           }
         }
       }
     } catch (e) {
-      // Ignore localStorage errors
+      console.error('[MOCK CLIENT] Error loading from localStorage:', e);
     }
   }
 
@@ -415,12 +458,16 @@ function runQuery(
       totalRows: rows.length,
       eqFilters: options.eq,
       inFilters: options.in,
+      selectStr: options.select,
       sampleRows: rows.slice(0, 3).map((r: Record<string, unknown>) => ({
+        id: r.id,
         step_key: r.step_key,
         hasStepKey: 'step_key' in r,
+        stepKeyValue: r.step_key,
         state: r.state,
         run_id: r.run_id,
         allKeys: Object.keys(r),
+        fullRow: JSON.stringify(r, null, 2),
       })),
     });
   }
@@ -436,10 +483,15 @@ function runQuery(
   if (table === 'case_workflow_steps' && typeof window !== 'undefined') {
     console.log('[MOCK CLIENT] After filtering:', {
       totalRows: rows.length,
+      selectStr: options.select,
       filteredRows: rows.map((r: Record<string, unknown>) => ({
+        id: r.id,
         step_key: r.step_key,
+        hasStepKey: 'step_key' in r,
+        stepKeyValue: r.step_key,
         state: r.state,
         run_id: r.run_id,
+        allKeys: Object.keys(r),
       })),
     });
   }
@@ -467,11 +519,47 @@ function runQuery(
   const useAllCols = selectStr === '*' || (mainCols.length === 0 && !expandCarsMatch && !expandBranchesMatch && !expandCasesMatch);
 
   let result = rows.map((r) => {
-    let row = useAllCols ? { ...r } : pick(r, mainCols.length ? mainCols : Object.keys(r));
+    let row = useAllCols ? { ...r } : pick(r, mainCols.length ? mainCols : Object.keys(r), table);
     
-    // CRITICAL FIX: For workflow steps, ensure step_key is always included if it exists in the row
-    if (table === 'case_workflow_steps' && r.step_key && !row.step_key) {
-      row.step_key = r.step_key;
+    // CRITICAL FIX: For workflow steps, ALWAYS include step_key if it exists in the source row
+    // This ensures step_key is never lost, even if not explicitly in the select clause
+    if (table === 'case_workflow_steps') {
+      if (r.step_key !== undefined && r.step_key !== null) {
+        row.step_key = r.step_key;
+      }
+      // Also ensure other critical fields are included
+      if (r.state !== undefined && r.state !== null && !row.state) {
+        row.state = r.state;
+      }
+      if (r.order_index !== undefined && r.order_index !== null && !row.order_index) {
+        row.order_index = r.order_index;
+      }
+      
+      // DEBUG: Log if step_key is missing
+      if (typeof window !== 'undefined' && table === 'case_workflow_steps') {
+        if (!row.step_key && r.step_key) {
+          console.warn('[MOCK CLIENT] step_key exists in source but not in result!', {
+            sourceStepKey: r.step_key,
+            resultKeys: Object.keys(row),
+            selectStr,
+            useAllCols,
+            mainCols,
+            sourceRow: JSON.stringify(r, null, 2),
+            resultRow: JSON.stringify(row, null, 2),
+          });
+        }
+        // Always log the final result for debugging
+        if (rows.length <= 3) {
+          console.log('[MOCK CLIENT] Final result row:', {
+            id: row.id,
+            step_key: row.step_key,
+            hasStepKey: !!row.step_key,
+            state: row.state,
+            allKeys: Object.keys(row),
+            fullRow: JSON.stringify(row, null, 2),
+          });
+        }
+      }
     }
     
     if (expandCarsMatch && table === 'cases') row = expandCars(row, expandCarsMatch[1].split(',').map((x) => x.trim()));
@@ -564,14 +652,26 @@ function buildChain(table: TableName) {
       };
       
       // CRITICAL FIX: For workflow steps, ALWAYS preserve step_key from payload
+      // This MUST happen before any other processing
       if (table === 'case_workflow_steps') {
         if (payloadObj.step_key) {
           newRecord.step_key = payloadObj.step_key;
         } else {
           // If step_key is missing, log error
           if (typeof window !== 'undefined') {
-            console.error('[MOCK CLIENT] ERROR: step_key is missing in payload for workflow step!', payloadObj);
+            console.error('[MOCK CLIENT] ERROR: step_key is missing in payload for workflow step!', {
+              payload: payloadObj,
+              payloadKeys: Object.keys(payloadObj),
+            });
           }
+        }
+        // CRITICAL: Ensure step_key is ALWAYS present - if it's missing, we can't save
+        if (!newRecord.step_key) {
+          console.error('[MOCK CLIENT] FATAL: step_key is missing in newRecord after initial setup!', {
+            payload: payloadObj,
+            newRecord,
+            newRecordKeys: Object.keys(newRecord),
+          });
         }
       }
       
@@ -626,7 +726,11 @@ function buildChain(table: TableName) {
       }
       
       // Add the new record to the mutable store
-      if (mutableStore[table] && Array.isArray(mutableStore[table])) {
+      // Initialize the table array if it doesn't exist yet
+      if (!mutableStore[table] || !Array.isArray(mutableStore[table])) {
+        (mutableStore as Record<string, unknown>)[table] = [];
+      }
+      if (Array.isArray(mutableStore[table])) {
         (mutableStore[table] as unknown[]).push(newRecord);
         
         // Also save to localStorage (client-side only) for persistence
@@ -638,16 +742,37 @@ function buildChain(table: TableName) {
             // Remove any duplicate by ID before adding
             const filteredItems = items.filter((item: Record<string, unknown>) => item.id !== newId);
             filteredItems.push(newRecord);
-            localStorage.setItem(key, JSON.stringify(filteredItems));
             
             // DEBUG: Log when saving workflow steps
             if (table === 'case_workflow_steps') {
               // CRITICAL FIX: Ensure step_key is ALWAYS in the saved record
-              if (!newRecord.step_key && payloadObj.step_key) {
-                console.warn('[MOCK CLIENT] step_key missing in newRecord, adding it:', payloadObj.step_key);
-                newRecord.step_key = payloadObj.step_key;
-                // Update the item in the array before saving
-                filteredItems[filteredItems.length - 1] = newRecord;
+              // Double-check that step_key exists - if not, try to get it from payload
+              if (!newRecord.step_key) {
+                if (payloadObj.step_key) {
+                  console.warn('[MOCK CLIENT] step_key missing in newRecord, adding it from payload:', payloadObj.step_key);
+                  newRecord.step_key = payloadObj.step_key;
+                  // Update the item in the array before saving
+                  filteredItems[filteredItems.length - 1] = newRecord;
+                } else {
+                  console.error('[MOCK CLIENT] FATAL: step_key is missing in both newRecord and payload!', {
+                    payload: payloadObj,
+                    newRecord,
+                    newRecordKeys: Object.keys(newRecord),
+                    payloadKeys: Object.keys(payloadObj),
+                  });
+                  // Remove the item from the array if it doesn't have step_key
+                  filteredItems.pop();
+                  // Don't save to localStorage if step_key is missing
+                  return {
+                    select: () => ({
+                      single: () =>
+                        Promise.resolve({
+                          data: { id: newId },
+                          error: null,
+                        }),
+                    }),
+                  };
+                }
               }
               
               // CRITICAL FIX: If step is DONE but doesn't have completed_at (and it's not OPEN_CASE), fix it to ACTIVE
@@ -660,31 +785,29 @@ function buildChain(table: TableName) {
                 filteredItems[filteredItems.length - 1] = newRecord;
               }
               
+              // CRITICAL: Save to localStorage - step_key should be guaranteed at this point
+              localStorage.setItem(key, JSON.stringify(filteredItems));
               console.log('[MOCK CLIENT] Saved workflow step to localStorage:', {
                 step_key: payloadObj.step_key,
                 newRecordStepKey: newRecord.step_key,
                 state: newRecord.state,
                 originalState: payloadObj.state,
                 run_id: payloadObj.run_id,
+                newRecordRunId: newRecord.run_id,
                 completed_at: newRecord.completed_at,
                 hasCompletedAt: !!newRecord.completed_at,
                 allKeys: Object.keys(newRecord),
                 hasStepKeyInPayload: !!payloadObj.step_key,
                 hasStepKeyInRecord: !!newRecord.step_key,
+                totalItemsInLocalStorage: filteredItems.length,
+                itemId: newId,
+                fullNewRecord: JSON.stringify(newRecord, null, 2),
               });
-              
-              // CRITICAL: If step_key is still missing, log error and don't save
-              if (!newRecord.step_key) {
-                console.error('[MOCK CLIENT] ERROR: step_key is missing in newRecord after all fixes!', {
-                  payload: payloadObj,
-                  newRecord,
-                });
-                // Remove the item from the array if it doesn't have step_key
-                filteredItems.pop();
-              }
+            } else {
+              localStorage.setItem(key, JSON.stringify(filteredItems));
             }
           } catch (e) {
-            // Ignore localStorage errors
+            console.error('[MOCK CLIENT] Error saving to localStorage:', e);
           }
         }
       }
@@ -700,27 +823,82 @@ function buildChain(table: TableName) {
       };
     },
     update(payload: unknown) {
+      const payloadObj = payload as Record<string, unknown>;
+      const updatedAt = new Date().toISOString();
+      
       const thenable = {
         then: (resolve: (v: { error: null }) => void) => {
-          // Update records in the mutable store
-          const payloadObj = payload as Record<string, unknown>;
-          const updatedAt = new Date().toISOString();
-          
           // This will be called with .eq() to filter which records to update
+          resolve({ error: null });
           return Promise.resolve({ error: null });
         },
         eq: (column: string, value: unknown) => {
           // Update records matching the filter
+          let updatedCount = 0;
           if (mutableStore[table] && Array.isArray(mutableStore[table])) {
-            const payloadObj = payload as Record<string, unknown>;
-            const updatedAt = new Date().toISOString();
             (mutableStore[table] as Record<string, unknown>[]).forEach((record) => {
               if (record[column] === value) {
+                const oldState = record.state;
                 Object.assign(record, payloadObj, { updated_at: updatedAt });
+                updatedCount++;
+                
+                // DEBUG: Log updates for workflow steps
+                if (table === 'case_workflow_steps' && typeof window !== 'undefined') {
+                  console.log('[MOCK CLIENT] Updating workflow step in mutableStore:', {
+                    id: record.id,
+                    step_key: record.step_key,
+                    oldState,
+                    newState: record.state,
+                    column,
+                    value,
+                    allKeys: Object.keys(record),
+                  });
+                }
               }
             });
+            
+            // CRITICAL: Also save to localStorage (client-side only)
+            if (typeof window !== 'undefined' && updatedCount > 0) {
+              try {
+                const key = `mock_${table}`;
+                const existing = localStorage.getItem(key);
+                const items = existing ? JSON.parse(existing) : [];
+                
+                // Update items in localStorage that match the filter
+                const updatedItems = items.map((item: Record<string, unknown>) => {
+                  if (item[column] === value) {
+                    const updated = { ...item, ...payloadObj, updated_at: updatedAt };
+                    if (table === 'case_workflow_steps' && typeof window !== 'undefined') {
+                      console.log('[MOCK CLIENT] Updating workflow step in localStorage:', {
+                        id: item.id,
+                        step_key: item.step_key,
+                        oldState: item.state,
+                        newState: updated.state,
+                      });
+                    }
+                    return updated;
+                  }
+                  return item;
+                });
+                
+                localStorage.setItem(key, JSON.stringify(updatedItems));
+                
+                if (table === 'case_workflow_steps') {
+                  console.log('[MOCK CLIENT] Saved updated workflow steps to localStorage:', {
+                    updatedCount,
+                    column,
+                    value,
+                    totalItems: updatedItems.length,
+                  });
+                }
+              } catch (e) {
+                console.error('[MOCK CLIENT] Error saving update to localStorage:', e);
+              }
+            }
           }
-          return thenable;
+          
+          // Return a promise that resolves immediately
+          return Promise.resolve({ error: null });
         },
       };
       return thenable;

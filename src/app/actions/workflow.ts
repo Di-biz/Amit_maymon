@@ -179,12 +179,16 @@ export async function createCase(input: CreateCaseInput) {
   return { caseId: String(caseId) };
 }
 
-export async function completeActiveStep(caseId: string) {
+export async function completeActiveStep(caseId: string, stepId?: string) {
+  console.log('[WORKFLOW ACTION] completeActiveStep called:', { caseId, stepId });
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { error: 'לא מחובר' };
+  if (!user) {
+    console.error('[WORKFLOW ACTION] User not logged in');
+    return { error: 'לא מחובר' };
+  }
 
   const { data: profileData } = await supabase
     .from('profiles')
@@ -213,15 +217,33 @@ export async function completeActiveStep(caseId: string) {
   if (isClosure && role !== 'OFFICE') return { error: 'רק משרד יכול להשלים שלבי סגירה' };
   if (!isClosure && role !== 'SERVICE_MANAGER') return { error: 'רק מנהל שירות יכול להשלים שלב' };
 
-  const { data: activeSteps } = await supabase
-    .from('case_workflow_steps')
-    .select('id, step_key, order_index')
-    .eq('run_id', run.id)
-    .eq('state', 'ACTIVE')
-    .order('order_index', { ascending: true })
-    .limit(1);
-  const activeStep = activeSteps && activeSteps.length > 0 ? activeSteps[0] : null;
-  if (!activeStep) return { error: 'אין שלב פעיל להשלמה' };
+  let activeStep: { id: string; step_key: string; order_index: number } | null = null;
+  
+  if (stepId) {
+    // Complete specific step by ID
+    const { data: stepData } = await supabase
+      .from('case_workflow_steps')
+      .select('id, step_key, order_index, state')
+      .eq('id', stepId)
+      .eq('run_id', run.id)
+      .single();
+    if (!stepData) return { error: 'שלב לא נמצא' };
+    if (stepData.state !== 'ACTIVE' && stepData.state !== 'PENDING') {
+      return { error: 'שלב זה כבר הושלם או דולג' };
+    }
+    activeStep = stepData as { id: string; step_key: string; order_index: number };
+  } else {
+    // Find first active step (backward compatibility)
+    const { data: activeSteps } = await supabase
+      .from('case_workflow_steps')
+      .select('id, step_key, order_index')
+      .eq('run_id', run.id)
+      .eq('state', 'ACTIVE')
+      .order('order_index', { ascending: true })
+      .limit(1);
+    activeStep = activeSteps && activeSteps.length > 0 ? activeSteps[0] : null;
+    if (!activeStep) return { error: 'אין שלב פעיל להשלמה' };
+  }
 
   const stepKey = activeStep.step_key;
 
@@ -339,7 +361,8 @@ export async function completeActiveStep(caseId: string) {
   }
 
   const now = new Date().toISOString();
-  await supabase
+  console.log('[WORKFLOW ACTION] Updating step to DONE:', { stepId: activeStep.id, stepKey, now });
+  const updateResult = await supabase
     .from('case_workflow_steps')
     .update({
       state: 'DONE',
@@ -347,6 +370,7 @@ export async function completeActiveStep(caseId: string) {
       completed_by: user.id,
     })
     .eq('id', activeStep.id);
+  console.log('[WORKFLOW ACTION] Update result:', updateResult);
 
   if (stepKey === 'READY_FOR_OFFICE') {
     await supabase
@@ -381,7 +405,8 @@ export async function completeActiveStep(caseId: string) {
     step_key: stepKey,
   });
 
-  return { ok: true };
+  console.log('[WORKFLOW ACTION] Step completed successfully:', { stepId: activeStep.id, stepKey });
+  return { ok: true, error: null };
 }
 
 export async function returnToEstimate(caseId: string) {
