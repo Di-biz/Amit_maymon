@@ -362,6 +362,12 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
       if (isPreview) {
         await completePreview(step, link);
       } else {
+        // In production: save fixcar_link to DB before calling server action
+        if (step.step_key === 'FIXCAR_PHOTOS' && link) {
+          const supabase = (await import('@/lib/supabase/client')).createClient();
+          await supabase.from('cases').update({ fixcar_link: link.trim() } as never).eq('id', caseId);
+          setFixcarValue(link.trim());
+        }
         const res = await completeActiveStep(caseId, step.id);
         if (res?.error) {
           setStepError(res.error);
