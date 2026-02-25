@@ -1,81 +1,76 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
 export function NotificationsBadge({ userId }: { userId: string }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
+  const lastNotificationIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!userId) return;
 
     const loadNotifications = async () => {
-      const supabase = createClient();
-      const { data } = await supabase
-        .from('notifications')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('read', false);
-      
-      setUnreadCount((data?.length ?? 0));
+      try {
+        const supabase = createClient();
+        const { data } = await supabase
+          .from('notifications')
+          .select('id, created_at')
+          .eq('user_id', userId)
+          .eq('read', false)
+          .order('created_at', { ascending: false });
+        
+        const count = data?.length ?? 0;
+        setUnreadCount(count);
+
+        // Check for new notifications for PWA
+        if (data && data.length > 0) {
+          const latestId = data[0].id;
+          if (lastNotificationIdRef.current && latestId !== lastNotificationIdRef.current) {
+            // New notification arrived - show browser notification
+            const latest = data[0];
+            if ('Notification' in window && Notification.permission === 'granted') {
+              // Get full notification details
+              const { data: fullNotification } = await supabase
+                .from('notifications')
+                .select('title, body, type')
+                .eq('id', latestId)
+                .single();
+              
+              if (fullNotification) {
+                new Notification(fullNotification.title || 'התראה חדשה', {
+                  body: fullNotification.body || undefined,
+                  icon: '/icon-192x192.png',
+                  badge: '/icon-192x192.png',
+                  tag: fullNotification.type || 'notification',
+                });
+              }
+            }
+          }
+          lastNotificationIdRef.current = latestId;
+        }
+      } catch (error) {
+        console.error('[NotificationsBadge] Error loading notifications:', error);
+      }
     };
 
+    // Initial load
     loadNotifications();
 
-    // Set up real-time subscription for PWA support
-    const supabase = createClient();
-    const channel = supabase
-      .channel('notifications-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${userId}`,
-        },
-        () => {
-          loadNotifications();
-        }
-      )
-      .subscribe();
-
     // Request notification permission for PWA
-    if ('Notification' in window && Notification.permission === 'default') {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
 
-    // Show browser notification when new notification arrives
-    const notificationChannel = supabase
-      .channel('notifications-new')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${userId}`,
-        },
-        (payload) => {
-          const notification = payload.new as { title: string; body: string | null; type: string | null };
-          if (Notification.permission === 'granted') {
-            new Notification(notification.title, {
-              body: notification.body || undefined,
-              icon: '/icon-192x192.png', // PWA icon
-              badge: '/icon-192x192.png',
-              tag: notification.type || 'notification',
-            });
-          }
-          loadNotifications();
-        }
-      )
-      .subscribe();
+    // Poll for updates every 10 seconds (instead of realtime subscriptions)
+    const intervalId = setInterval(() => {
+      loadNotifications();
+    }, 10000);
 
     return () => {
-      channel.unsubscribe();
-      notificationChannel.unsubscribe();
+      clearInterval(intervalId);
     };
   }, [userId]);
 
