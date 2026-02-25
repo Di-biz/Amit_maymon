@@ -50,6 +50,7 @@ interface ClosureDetailClientProps {
   blockedByApprovals: boolean;
   canClose: boolean;
   isPreview?: boolean;
+  closureApprovalStatus?: string | null;
 }
 
 export function ClosureDetailClient({
@@ -68,6 +69,7 @@ export function ClosureDetailClient({
   blockedByApprovals,
   canClose,
   isPreview = false,
+  closureApprovalStatus,
 }: ClosureDetailClientProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -76,6 +78,7 @@ export function ClosureDetailClient({
   // In PREVIEW, start empty and load from mock client (localStorage)
   const [localSteps, setLocalSteps] = useState<StepRow[]>(isPreview ? [] : steps);
   const initRef = useRef<string | null>(null);
+  const [completingStepId, setCompletingStepId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isPreview) return;
@@ -108,6 +111,41 @@ export function ClosureDetailClient({
     })().catch(console.error);
   }, [isPreview, caseId]);
 
+  // Reload steps after completion to ensure persistence
+  useEffect(() => {
+    if (!isPreview) return;
+    if (completingStepId !== null) return; // Don't reload while completing
+
+    const reloadSteps = async () => {
+      const supabase = (await import('@/lib/supabase/client')).createClient();
+      const { data: runs } = await supabase
+        .from('case_workflow_runs')
+        .select('id')
+        .eq('case_id', caseId)
+        .eq('workflow_type', 'CLOSURE');
+      const runIds = (runs as { id: string }[] | null)?.map((r) => r.id) ?? [];
+      if (runIds.length === 0) return;
+
+      const { data: stepsData } = await supabase
+        .from('case_workflow_steps')
+        .select('id, step_key, state, order_index')
+        .in('run_id', runIds)
+        .order('order_index');
+
+      if (stepsData && stepsData.length > 0) {
+        const raw = (stepsData as StepRow[]).sort((a, b) => a.order_index - b.order_index);
+        const normalized = normalizeStepStates(raw);
+        setLocalSteps(normalized);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      reloadSteps().catch(console.error);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [isPreview, caseId, completingStepId]);
+
   // Re-apply sequential step states: first non-DONE = ACTIVE, rest = PENDING
   function normalizeStepStates(raw: StepRow[]): StepRow[] {
     let foundActive = false;
@@ -126,7 +164,29 @@ export function ClosureDetailClient({
   // Normalize to ensure sequential state (first non-DONE is ACTIVE)
   const normalizedSteps = normalizeStepStates(orderedSteps);
   const activeStep = normalizedSteps.find((s) => s.state === 'ACTIVE');
-  const closeBlocked = blockedByExtras || blockedByApprovals;
+  
+  // In PREVIEW mode, check closure approval from localStorage
+  const [localClosureApproval, setLocalClosureApproval] = useState<string | null>(closureApprovalStatus ?? null);
+  useEffect(() => {
+    if (!isPreview) return;
+    (async () => {
+      const supabase = (await import('@/lib/supabase/client')).createClient();
+      const { data } = await supabase
+        .from('ceo_approvals')
+        .select('status')
+        .eq('case_id', caseId)
+        .eq('approval_type', 'CASE_CLOSURE')
+        .maybeSingle();
+      if (data) setLocalClosureApproval((data as { status: string }).status);
+    })().catch(console.error);
+  }, [isPreview, caseId]);
+  
+  const effectiveClosureApproval = isPreview ? localClosureApproval : closureApprovalStatus;
+  // CLOSE_CASE is blocked if: extras in treatment OR missing closure approval
+  // Other steps are blocked by blockedByApprovals (estimate/wheels)
+  const closeBlocked = activeStep?.step_key === 'CLOSE_CASE' 
+    ? (blockedByExtras || effectiveClosureApproval !== 'APPROVED')
+    : (blockedByExtras || blockedByApprovals);
   const allDone = normalizedSteps.length > 0 && normalizedSteps.every((s) => s.state === 'DONE');
   const doneCount = normalizedSteps.filter((s) => s.state === 'DONE').length;
 
@@ -156,15 +216,44 @@ export function ClosureDetailClient({
         .eq('id', nextStep.id);
     }
 
-    // CLOSE_CASE: finalize the case
-    if (step.step_key === 'CLOSE_CASE') {
-      await supabase
-        .from('cases')
-        .update({ closed_at: now, general_status: 'COMPLETED' } as never)
-        .eq('id', caseId);
+    // CLOSURE_PREPARE_CLOSING_FORMS: create CEO approval for case closure
+    if (step.step_key === 'CLOSURE_PREPARE_CLOSING_FORMS') {
+      // Check if approval already exists
+      const { data: existing } = await supabase
+        .from('ceo_approvals')
+        .select('id')
+        .eq('case_id', caseId)
+        .eq('approval_type', 'CASE_CLOSURE')
+        .maybeSingle();
+      
+      if (!existing) {
+        await supabase.from('ceo_approvals').insert({
+          case_id: caseId,
+          approval_type: 'CASE_CLOSURE',
+          status: 'PENDING',
+        } as never);
+      }
     }
 
-    // Update local state DIRECTLY — no reload needed, this is reliable
+    // CLOSE_CASE: finalize the case (only if approval is granted)
+    if (step.step_key === 'CLOSE_CASE') {
+      // Check if CEO approval exists and is approved
+      const { data: closureApproval } = await supabase
+        .from('ceo_approvals')
+        .select('status')
+        .eq('case_id', caseId)
+        .eq('approval_type', 'CASE_CLOSURE')
+        .maybeSingle();
+      
+      if (closureApproval && (closureApproval as { status: string }).status === 'APPROVED') {
+        await supabase
+          .from('cases')
+          .update({ closed_at: now, general_status: 'COMPLETED' } as never)
+          .eq('id', caseId);
+      }
+    }
+
+    // Update local state IMMEDIATELY for instant UI feedback
     setLocalSteps(
       sorted.map((s) => {
         if (s.id === step.id) return { ...s, state: 'DONE' };
@@ -173,12 +262,36 @@ export function ClosureDetailClient({
         return s;
       })
     );
+    
+    // Then reload from mock store to ensure persistence (async, doesn't block UI)
+    setTimeout(async () => {
+      const { data: runs } = await supabase
+        .from('case_workflow_runs')
+        .select('id')
+        .eq('case_id', caseId)
+        .eq('workflow_type', 'CLOSURE');
+      const runIds = (runs as { id: string }[] | null)?.map((r) => r.id) ?? [];
+      if (runIds.length > 0) {
+        const { data: updatedSteps } = await supabase
+          .from('case_workflow_steps')
+          .select('id, step_key, state, order_index')
+          .in('run_id', runIds)
+          .order('order_index');
+        
+        if (updatedSteps && updatedSteps.length > 0) {
+          const raw = (updatedSteps as StepRow[]).sort((a, b) => a.order_index - b.order_index);
+          const normalized = normalizeStepStates(raw);
+          setLocalSteps(normalized);
+        }
+      }
+    }, 100);
   }
 
   async function handleCompleteStep() {
     if (!activeStep) return;
     setError(null);
     setLoading(true);
+    setCompletingStepId(activeStep.id);
     try {
       if (isPreview) {
         await completePreviewStep(activeStep);
@@ -192,6 +305,7 @@ export function ClosureDetailClient({
       setError('שגיאה בהשלמת השלב');
     } finally {
       setLoading(false);
+      setCompletingStepId(null);
     }
   }
 
@@ -378,7 +492,13 @@ export function ClosureDetailClient({
               {activeStep.step_key === 'CLOSE_CASE' && closeBlocked && (
                 <p className="text-sm text-amber-700">
                   {blockedByExtras && 'יש תוספות בטיפול. '}
-                  {blockedByApprovals && 'חסר אישור CEO.'}
+                  {effectiveClosureApproval !== 'APPROVED' && 'חסר אישור CEO לסגירת תיק.'}
+                </p>
+              )}
+              {activeStep && activeStep.step_key !== 'CLOSE_CASE' && closeBlocked && (
+                <p className="text-sm text-amber-700">
+                  {blockedByExtras && 'יש תוספות בטיפול. '}
+                  {blockedByApprovals && 'חסר אישור CEO לאומדן/גלגלים.'}
                 </p>
               )}
             </div>

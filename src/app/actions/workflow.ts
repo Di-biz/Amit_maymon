@@ -379,7 +379,37 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
       .eq('id', caseId);
   }
 
+  // CLOSURE_PREPARE_CLOSING_FORMS: create CEO approval for case closure
+  if (stepKey === 'CLOSURE_PREPARE_CLOSING_FORMS' && isClosure) {
+    const { data: existing } = await supabase
+      .from('ceo_approvals')
+      .select('id')
+      .eq('case_id', caseId)
+      .eq('approval_type', 'CASE_CLOSURE')
+      .maybeSingle();
+    
+    if (!existing) {
+      await supabase.from('ceo_approvals').insert({
+        case_id: caseId,
+        approval_type: 'CASE_CLOSURE',
+        status: 'PENDING',
+      });
+    }
+  }
+
   if (stepKey === 'CLOSE_CASE') {
+    // Check if CEO approval exists and is approved
+    const { data: closureApproval } = await supabase
+      .from('ceo_approvals')
+      .select('status')
+      .eq('case_id', caseId)
+      .eq('approval_type', 'CASE_CLOSURE')
+      .maybeSingle();
+    
+    if (!closureApproval || (closureApproval as { status: string }).status !== 'APPROVED') {
+      return { error: 'נדרש אישור CEO לסגירת תיק' };
+    }
+    
     await supabase.from('cases').update({ closed_at: now, general_status: 'COMPLETED' }).eq('id', caseId);
     await supabase.from('case_workflow_runs').update({ status: 'COMPLETED' }).eq('id', run.id);
     await writeAudit(supabase, 'CASE', caseId, 'CASE_CLOSED', user.id);

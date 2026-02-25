@@ -28,7 +28,7 @@ export type WorkflowRunStatus = 'ACTIVE' | 'COMPLETED';
 
 export type StepState = 'PENDING' | 'ACTIVE' | 'DONE' | 'SKIPPED';
 
-export type ApprovalType = 'ESTIMATE_AND_DETAILS' | 'WHEELS_CHECK';
+export type ApprovalType = 'ESTIMATE_AND_DETAILS' | 'WHEELS_CHECK' | 'CASE_CLOSURE';
 
 export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 

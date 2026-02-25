@@ -20,6 +20,7 @@ interface ApprovalRow {
 const APPROVAL_TYPE_LABELS: Record<string, string> = {
   ESTIMATE_AND_DETAILS: 'אישור אומדן ופרטים',
   WHEELS_CHECK: 'אישור בדיקת גלגלים',
+  CASE_CLOSURE: 'אישור סגירת תיק',
 };
 
 const PARTS_STATUS_LABELS: Record<string, { label: string; color: string }> = {
