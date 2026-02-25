@@ -184,6 +184,8 @@ export function ClosureDetailClient({
   const effectiveClosureApproval = isPreview ? localClosureApproval : closureApprovalStatus;
   // CLOSE_CASE is blocked if: extras in treatment OR missing closure approval
   // Other steps are blocked by blockedByApprovals (estimate/wheels)
+  // Don't show warning if case is already closed
+  const isCaseClosed = allDone;
   const closeBlocked = activeStep?.step_key === 'CLOSE_CASE' 
     ? (blockedByExtras || effectiveClosureApproval !== 'APPROVED')
     : (blockedByExtras || blockedByApprovals);
@@ -375,12 +377,13 @@ export function ClosureDetailClient({
           )}
         </div>
 
-        {(blockedByExtras || blockedByApprovals) && (
+        {!isCaseClosed && (blockedByExtras || blockedByApprovals || (activeStep?.step_key === 'CLOSE_CASE' && effectiveClosureApproval !== 'APPROVED')) && (
           <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
             <p className="text-sm font-medium text-amber-800 flex items-center gap-2">
               <span>⚠️</span>
               {blockedByExtras && <span>קיימות תוספות פחחות בטיפול.</span>}
-              {blockedByApprovals && <span>חסר אישור CEO לסגירה.</span>}
+              {blockedByApprovals && <span>חסר אישור CEO לאומדן/גלגלים.</span>}
+              {activeStep?.step_key === 'CLOSE_CASE' && effectiveClosureApproval !== 'APPROVED' && <span>חסר אישור CEO לסגירה.</span>}
             </p>
           </div>
         )}

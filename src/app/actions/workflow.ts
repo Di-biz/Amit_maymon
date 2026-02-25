@@ -260,17 +260,13 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
     return { error: 'נדרש קישור FixCar' };
   }
 
+  // ENTER_WORK: Allow completion but log warning if parts not available (no longer blocking)
   if (stepKey === 'ENTER_WORK' && caseRow.parts_status !== 'AVAILABLE') {
-    await supabase.from('notifications').insert({
-      user_id: profile!.id,
-      type: 'BLOCKED_ACTION',
-      title: 'פעולה חסומה',
-      body: 'לא ניתן להיכנס לעבודה ללא חלקים זמינים',
-    });
-    await writeAudit(supabase, 'WORKFLOW_STEP', activeStep.id, 'BLOCKED_ACTION', user.id, {
+    await writeAudit(supabase, 'WORKFLOW_STEP', activeStep.id, 'STEP_COMPLETED_WITH_WARNING', user.id, {
       reason: 'parts_not_available',
+      message: 'שלב הושלם למרות שחלקים לא זמינים',
     });
-    return { error: 'סטטוס חלקים חייב להיות זמין' };
+    // Don't block - just log the warning
   }
 
   if (stepKey === 'READY_FOR_OFFICE' || stepKey === 'CLOSE_CASE') {

@@ -67,6 +67,7 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
   const [partsValue, setPartsValue] = useState<PartsStatus>(partsStatus);
   const [fixcarValue, setFixcarValue] = useState(fixcarLink ?? '');
   const [updatingParts, setUpdatingParts] = useState(false);
+  const [partsStatusMessage, setPartsStatusMessage] = useState<string | null>(null);
 
   // Keep a local copy of steps so we can update the UI immediately when completing steps.
   // In PREVIEW mode the server already uses the mock client, so `steps` are always in sync
@@ -192,12 +193,32 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
 
   async function savePartsStatus(v: PartsStatus) {
     if (!canEdit) return;
+    const oldValue = partsValue;
     setPartsValue(v);
     setUpdatingParts(true);
     try {
       const supabase = (await import('@/lib/supabase/client')).createClient();
       await supabase.from('cases').update({ parts_status: v } as never).eq('id', caseId);
-      router.refresh();
+      
+      // If parts status changed to AVAILABLE, show success message
+      if (oldValue !== 'AVAILABLE' && v === 'AVAILABLE') {
+        setPartsStatusMessage('חלקים עודכנו כזמינים');
+        setTimeout(() => setPartsStatusMessage(null), 5000); // Hide after 5 seconds
+        // Log audit event for parts status update
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from('audit_events').insert({
+            entity_type: 'CASE',
+            entity_id: caseId,
+            action: 'PARTS_STATUS_UPDATED',
+            user_id: user.id,
+            payload: { old_status: oldValue, new_status: v },
+          } as never);
+        }
+      }
+      
+      // Don't refresh - keep the checklist state intact
+      // router.refresh(); // Removed to prevent checklist reset
     } finally {
       setUpdatingParts(false);
     }
@@ -328,11 +349,8 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
       return;
     }
 
-    // Real blockers (cannot be resolved inline)
-    if (step.step_key === 'ENTER_WORK' && partsStatus !== 'AVAILABLE') {
-      setStepError('לא ניתן להיכנס לעבודה - סטטוס חלקים חייב להיות "זמינים"');
-      return;
-    }
+    // ENTER_WORK: Allow completion but show warning if parts not available
+    // (No longer blocking - just a warning)
 
     if (step.step_key === 'READY_FOR_OFFICE') {
       if (extras.some((e) => e.status === 'IN_TREATMENT')) {
@@ -408,6 +426,11 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
               <option value="AVAILABLE">זמינים</option>
             </select>
             {updatingParts && <span className="mr-2 text-sm text-gray-500">שומר...</span>}
+            {partsStatusMessage && (
+              <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+                ✓ {partsStatusMessage}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -437,10 +460,13 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
               // Check if step is blocked by a real blocker (not link — link uses popup)
               let isBlocked = false;
               let blockReason = '';
+              let showWarning = false;
+              let warningMessage = '';
               if (!isDone && !isSkipped) {
                 if (s.step_key === 'ENTER_WORK' && partsStatus !== 'AVAILABLE') {
-                  isBlocked = true;
-                  blockReason = 'חלקים לא זמינים';
+                  // Show warning instead of blocking
+                  showWarning = true;
+                  warningMessage = 'חלקים לא זמינים - יש לעדכן את סטטוס החלקים ל"זמינים"';
                 } else if (s.step_key === 'READY_FOR_OFFICE') {
                   const hasExtrasInTreatment = extras.some((e) => e.status === 'IN_TREATMENT');
                   const requiredApprovals = effectiveApprovals.filter((a) => a.approval_type === 'ESTIMATE_AND_DETAILS' || a.approval_type === 'WHEELS_CHECK');
@@ -498,6 +524,16 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
                       </button>
                     )}
                   </div>
+                  
+                  {/* Warning message for ENTER_WORK when parts not available */}
+                  {showWarning && warningMessage && (
+                    <div className="mr-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-sm text-amber-800 flex items-center gap-2">
+                        <span>⚠️</span>
+                        <span>{warningMessage}</span>
+                      </p>
+                    </div>
+                  )}
 
                   {/* Display saved link below step */}
                   {isDone && hasLink && s.step_key === 'FIXCAR_PHOTOS' && (
