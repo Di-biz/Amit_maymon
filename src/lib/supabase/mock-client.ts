@@ -4,7 +4,15 @@
  * This provides a full PREVIEW mode without database - all data is stored in memory and localStorage.
  * No authentication required - automatically logged in as preview user.
  */
-import { getPreviewStore, PREVIEW_USER_ID, MOCK_CASES, MOCK_RUNS } from './preview-data';
+import { getPreviewStore, MOCK_PROFILES, PREVIEW_USER_ID, MOCK_CASES, MOCK_RUNS } from './preview-data';
+
+/** Returns the active preview profile based on localStorage `preview_active_role`. */
+function getActivePreviewProfile() {
+  const role = typeof window !== 'undefined'
+    ? (localStorage.getItem('preview_active_role') ?? 'SERVICE_MANAGER')
+    : 'SERVICE_MANAGER';
+  return MOCK_PROFILES.find((p) => p.role === role) ?? MOCK_PROFILES[0];
+}
 
 // Helper function to clean and fix localStorage data
 function cleanLocalStorageSteps() {
@@ -910,16 +918,18 @@ function buildChain(table: TableName) {
 export function createMockSupabaseClient() {
   return {
     auth: {
-      getUser: () =>
-        Promise.resolve({
+      getUser: () => {
+        const profile = getActivePreviewProfile();
+        return Promise.resolve({
           data: {
             user: {
-              id: PREVIEW_USER_ID,
-              email: 'preview@example.com',
+              id: profile.id,
+              email: `${profile.full_name}@preview.local`,
             },
           },
           error: null,
-        }),
+        });
+      },
       signOut: () => Promise.resolve({ error: null }),
     },
     from(_table: TableName) {

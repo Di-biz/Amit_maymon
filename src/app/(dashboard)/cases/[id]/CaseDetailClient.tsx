@@ -255,17 +255,14 @@ export function CaseDetailClient({
 
   async function handleCompleteStep(stepId: string, stepKey: string) {
     setStepError(null);
-    
-    // If step requires a link, open the link input instead of completing
+
+    // If step requires a link, always show the link popup first (pre-fill if exists)
     if (STEPS_REQUIRING_LINK.includes(stepKey)) {
-      const link = stepLinks[stepId] || (stepKey === 'FIXCAR_PHOTOS' ? fixcarValue : '');
-      if (!link || !link.trim()) {
-        setEditingLinkForStep(stepId);
-        if (stepKey === 'FIXCAR_PHOTOS' && !stepLinks[stepId]) {
-          setStepLinks({ ...stepLinks, [stepId]: fixcarValue || '' });
-        }
-        return;
+      setEditingLinkForStep(stepId);
+      if (stepKey === 'FIXCAR_PHOTOS' && !stepLinks[stepId]) {
+        setStepLinks(prev => ({ ...prev, [stepId]: fixcarValue || '' }));
       }
+      return;
     }
     
     setCompletingStepId(stepId);
@@ -493,55 +490,43 @@ export function CaseDetailClient({
                     <span className="text-gray-400 text-sm">דולג</span>
                   )}
                 </div>
-                {/* Link input for steps that require it - shown below the step */}
+                {/* Link popup - shown below the step after clicking "סמן בוצע" */}
                 {canEdit && editingLinkForStep === s.id && !isDone && !isSkipped && (
-                  <div className="mr-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                    <label className="block text-sm font-medium mb-2">
-                      קישור ל-{STEP_LABELS[s.step_key] || 'שלב זה'}
-                    </label>
+                  <div className="mr-11 mt-1 p-3 bg-white rounded-lg border border-blue-300 shadow-md animate-fade-in">
+                    <p className="text-xs font-semibold text-blue-700 mb-2">
+                      🔗 הוסף קישור ל-{STEP_LABELS[s.step_key] || 'שלב זה'}
+                    </p>
                     <div className="flex gap-2">
                       <input
+                        autoFocus
                         type="url"
-                        value={stepLinks[s.id] || (s.step_key === 'FIXCAR_PHOTOS' ? fixcarValue : '')}
+                        value={stepLinks[s.id] ?? (s.step_key === 'FIXCAR_PHOTOS' ? fixcarValue : '')}
                         onChange={(e) => {
-                          setStepLinks({ ...stepLinks, [s.id]: e.target.value });
-                          if (s.step_key === 'FIXCAR_PHOTOS') {
-                            setFixcarValue(e.target.value);
-                          }
+                          setStepLinks(prev => ({ ...prev, [s.id]: e.target.value }));
+                          if (s.step_key === 'FIXCAR_PHOTOS') setFixcarValue(e.target.value);
                         }}
-                        className="flex-1 border rounded px-3 py-2 text-sm"
+                        className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                         dir="ltr"
-                        placeholder="הכנס קישור..."
+                        placeholder="https://..."
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleSaveLinkAndComplete(s.id, s.step_key);
-                          }
+                          if (e.key === 'Enter') handleSaveLinkAndComplete(s.id, s.step_key);
+                          if (e.key === 'Escape') setEditingLinkForStep(null);
                         }}
                       />
                       <button
                         type="button"
                         disabled={!!completingStepId}
                         onClick={() => handleSaveLinkAndComplete(s.id, s.step_key)}
-                        className="px-4 py-2 bg-green-600 text-white rounded text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                        className="px-3 py-1.5 bg-green-600 text-white rounded-md text-xs font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-1"
                       >
-                        {completingStepId === s.id ? (
-                          <>
-                            <span className="animate-spin">⏳</span>
-                            <span>מבצע...</span>
-                          </>
-                        ) : (
-                          <>
-                            <span>✓</span>
-                            <span>שמור וסמן בוצע</span>
-                          </>
-                        )}
+                        {completingStepId === s.id ? <span className="animate-spin">⏳</span> : '✓ אישור'}
                       </button>
                       <button
                         type="button"
                         onClick={() => setEditingLinkForStep(null)}
-                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm font-medium hover:bg-gray-300 transition-colors"
+                        className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-md text-xs font-semibold hover:bg-gray-200 transition-colors"
                       >
-                        ביטול
+                        ✕
                       </button>
                     </div>
                   </div>

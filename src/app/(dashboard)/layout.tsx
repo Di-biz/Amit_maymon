@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import type { UserRole } from '@/types/database';
+import { PreviewRoleSwitcher } from '@/components/preview/PreviewRoleSwitcher';
 
 const ROLE_LINKS: Record<UserRole, { label: string; href: string }[]> = {
   SERVICE_MANAGER: [
@@ -86,6 +87,7 @@ export default async function DashboardLayout({
           מצב תצוגה מקדימה — ללא התחברות וללא מסד נתונים. הנתונים להמחשה בלבד.
         </div>
       )}
+      {isPreview && <PreviewRoleSwitcher />}
       <header className="border-b bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-4 shadow-lg">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">

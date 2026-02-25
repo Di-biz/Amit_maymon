@@ -60,14 +60,22 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
 
   const router = useRouter();
   const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
-  const canEdit = role === 'SERVICE_MANAGER';
+  // In PREVIEW: role comes from server (always SERVICE_MANAGER). Read active role from localStorage for UI.
+  const [activePreviewRole, setActivePreviewRole] = useState<string>(role ?? 'SERVICE_MANAGER');
+  const canEdit = isPreview ? activePreviewRole === 'SERVICE_MANAGER' : role === 'SERVICE_MANAGER';
 
   const [partsValue, setPartsValue] = useState<PartsStatus>(partsStatus);
   const [fixcarValue, setFixcarValue] = useState(fixcarLink ?? '');
   const [updatingParts, setUpdatingParts] = useState(false);
 
-  const [localSteps, setLocalSteps] = useState<StepRow[]>(steps);
+  // In PREVIEW mode, always start empty and load from localStorage (server can't access localStorage)
+  const [localSteps, setLocalSteps] = useState<StepRow[]>(isPreview ? [] : steps);
   const effectiveSteps = localSteps.length > 0 ? localSteps : steps;
+
+  // Approvals from localStorage in PREVIEW (server-rendered data is stale)
+  type ApprovalRow = { id: string; approval_type: string; status: string; rejection_note: string | null };
+  const [localApprovals, setLocalApprovals] = useState<ApprovalRow[]>(isPreview ? [] : approvals);
+  const effectiveApprovals = isPreview ? localApprovals : approvals;
 
   const [completingStepId, setCompletingStepId] = useState<string | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
@@ -76,6 +84,14 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
   const [returning, setReturning] = useState(false);
 
   const initRef = useRef<string | null>(null);
+  const approvalsInitRef = useRef<string | null>(null);
+
+  // Read active preview role from localStorage
+  useEffect(() => {
+    if (!isPreview) return;
+    const stored = localStorage.getItem('preview_active_role');
+    if (stored) setActivePreviewRole(stored);
+  }, [isPreview]);
 
   // Seed stepLinks from existing fixcarLink when we know the step id.
   useEffect(() => {
@@ -85,10 +101,9 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
     setStepLinks((prev) => ({ ...prev, [step.id]: fixcarLink }));
   }, [fixcarLink, effectiveSteps]);
 
-  // In PREVIEW mode, server-rendered steps may be empty; load them client-side (from localStorage via mock client).
+  // In PREVIEW mode, always load steps from localStorage (server cannot access localStorage).
   useEffect(() => {
     if (!isPreview) return;
-    if (steps.length > 0) return;
     if (!caseId) return;
     if (initRef.current === caseId) return;
     initRef.current = caseId;
@@ -125,7 +140,24 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
     })().catch((e) => {
       console.error('[CaseDetailClientV2] Failed to load steps in preview:', e);
     });
-  }, [isPreview, steps.length, caseId]);
+  }, [isPreview, caseId]);
+
+  // Load approvals from localStorage in PREVIEW (server-rendered data is always stale)
+  useEffect(() => {
+    if (!isPreview) return;
+    if (!caseId) return;
+    if (approvalsInitRef.current === caseId) return;
+    approvalsInitRef.current = caseId;
+
+    (async () => {
+      const supabase = (await import('@/lib/supabase/client')).createClient();
+      const { data } = await supabase
+        .from('ceo_approvals')
+        .select('id, approval_type, status, rejection_note')
+        .eq('case_id', caseId);
+      if (data) setLocalApprovals(data as ApprovalRow[]);
+    })().catch(console.error);
+  }, [isPreview, caseId]);
 
   // Reload steps after completion to ensure persistence
   useEffect(() => {
@@ -266,6 +298,29 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
       .update({ state: 'DONE', completed_at: now, completed_by: userId } as never)
       .eq('id', step.id);
 
+    // Activate the next PENDING step
+    const nextStep = orderedSteps.find(
+      (s) => s.order_index === step.order_index + 1 && s.state === 'PENDING'
+    );
+    if (nextStep) {
+      await supabase
+        .from('case_workflow_steps')
+        .update({ state: 'ACTIVE', activated_at: now } as never)
+        .eq('id', nextStep.id);
+    }
+
+    // Special: READY_FOR_OFFICE marks the professional run as COMPLETED
+    if (step.step_key === 'READY_FOR_OFFICE' && runId) {
+      await supabase
+        .from('case_workflow_runs')
+        .update({ status: 'COMPLETED' } as never)
+        .eq('id', runId);
+      await supabase
+        .from('cases')
+        .update({ treatment_finished_at: now } as never)
+        .eq('id', caseId);
+    }
+
     await supabase.from('audit_events').insert(
       {
         entity_type: 'WORKFLOW_STEP',
@@ -288,46 +343,8 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
     }
   }
 
-  async function handleComplete(step: StepRow) {
-    if (!canEdit) return;
-    setStepError(null);
-
-    // Check blocking rules before completion
-    if (step.step_key === 'FIXCAR_PHOTOS') {
-      const link = (stepLinks[step.id] ?? fixcarValue ?? '').trim();
-      if (!link) {
-        setEditingLinkStepId(step.id);
-        setStepError('נדרש קישור FixCar להשלמת השלב');
-        return;
-      }
-    }
-
-    if (step.step_key === 'ENTER_WORK' && partsStatus !== 'AVAILABLE') {
-      setStepError('לא ניתן להיכנס לעבודה - סטטוס חלקים חייב להיות "זמינים"');
-      return;
-    }
-
-    if (step.step_key === 'READY_FOR_OFFICE') {
-      const hasExtrasInTreatment = extras.some((e) => e.status === 'IN_TREATMENT');
-      if (hasExtrasInTreatment) {
-        setStepError('לא ניתן להשלים - יש תוספות פחחות בטיפול');
-        return;
-      }
-      const requiredApprovals = approvals.filter((a) => a.approval_type === 'ESTIMATE_AND_DETAILS' || a.approval_type === 'WHEELS_CHECK');
-      const hasRejectedOrMissing = requiredApprovals.some((a) => a.status !== 'APPROVED');
-      if (hasRejectedOrMissing) {
-        setStepError('לא ניתן להשלים - נדרש אישור CEO');
-        return;
-      }
-    }
-
-    const requiresLink = STEPS_REQUIRING_LINK.has(step.step_key);
-    const link = (stepLinks[step.id] ?? (step.step_key === 'FIXCAR_PHOTOS' ? fixcarValue : '')).trim();
-    if (requiresLink && !link) {
-      setEditingLinkStepId(step.id);
-      return;
-    }
-
+  // Core completion logic — called after all validations pass
+  async function performComplete(step: StepRow, link?: string) {
     setCompletingStepId(step.id);
     try {
       if (isPreview) {
@@ -337,7 +354,6 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
         if (res?.error) {
           setStepError(res.error);
         } else {
-          // Refresh to get updated steps
           router.refresh();
         }
       }
@@ -349,14 +365,50 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
     }
   }
 
+  async function handleComplete(step: StepRow) {
+    if (!canEdit) return;
+    setStepError(null);
+
+    // Steps requiring a link: always open the popup first (pre-fill if link exists)
+    if (STEPS_REQUIRING_LINK.has(step.step_key)) {
+      if (!stepLinks[step.id] && step.step_key === 'FIXCAR_PHOTOS' && fixcarValue) {
+        setStepLinks((prev) => ({ ...prev, [step.id]: fixcarValue }));
+      }
+      setEditingLinkStepId(step.id);
+      return;
+    }
+
+    // Real blockers (cannot be resolved inline)
+    if (step.step_key === 'ENTER_WORK' && partsStatus !== 'AVAILABLE') {
+      setStepError('לא ניתן להיכנס לעבודה - סטטוס חלקים חייב להיות "זמינים"');
+      return;
+    }
+
+    if (step.step_key === 'READY_FOR_OFFICE') {
+      if (extras.some((e) => e.status === 'IN_TREATMENT')) {
+        setStepError('לא ניתן להשלים - יש תוספות פחחות בטיפול');
+        return;
+      }
+      const required = effectiveApprovals.filter((a) => a.approval_type === 'ESTIMATE_AND_DETAILS' || a.approval_type === 'WHEELS_CHECK');
+      if (required.length > 0 && required.some((a) => a.status !== 'APPROVED')) {
+        setStepError('לא ניתן להשלים - נדרש אישור CEO (עמית)');
+        return;
+      }
+    }
+
+    await performComplete(step);
+  }
+
+  // Called from popup confirm button — validate link then complete directly (no popup re-open)
   async function handleSaveLinkAndComplete(step: StepRow) {
     const link = (stepLinks[step.id] ?? '').trim();
     if (!link) {
       setStepError('נדרש קישור');
       return;
     }
+    setStepError(null);
     setEditingLinkStepId(null);
-    await handleComplete(step);
+    await performComplete(step, link);
   }
 
   async function handleReturnToEstimate() {
@@ -432,20 +484,17 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
               const savedLink = stepLinks[s.id] || (s.step_key === 'FIXCAR_PHOTOS' ? fixcarValue : '');
               const hasLink = savedLink.trim().length > 0;
 
-              // Check if step is blocked
+              // Check if step is blocked by a real blocker (not link — link uses popup)
               let isBlocked = false;
               let blockReason = '';
               if (!isDone && !isSkipped) {
-                if (s.step_key === 'FIXCAR_PHOTOS' && !hasLink) {
-                  isBlocked = true;
-                  blockReason = 'נדרש קישור';
-                } else if (s.step_key === 'ENTER_WORK' && partsStatus !== 'AVAILABLE') {
+                if (s.step_key === 'ENTER_WORK' && partsStatus !== 'AVAILABLE') {
                   isBlocked = true;
                   blockReason = 'חלקים לא זמינים';
                 } else if (s.step_key === 'READY_FOR_OFFICE') {
                   const hasExtrasInTreatment = extras.some((e) => e.status === 'IN_TREATMENT');
-                  const requiredApprovals = approvals.filter((a) => a.approval_type === 'ESTIMATE_AND_DETAILS' || a.approval_type === 'WHEELS_CHECK');
-                  const hasRejectedOrMissing = requiredApprovals.some((a) => a.status !== 'APPROVED');
+                  const requiredApprovals = effectiveApprovals.filter((a) => a.approval_type === 'ESTIMATE_AND_DETAILS' || a.approval_type === 'WHEELS_CHECK');
+                  const hasRejectedOrMissing = requiredApprovals.length > 0 && requiredApprovals.some((a) => a.status !== 'APPROVED');
                   if (hasExtrasInTreatment || hasRejectedOrMissing) {
                     isBlocked = true;
                     if (hasExtrasInTreatment) blockReason = 'תוספות בטיפול';
@@ -486,7 +535,7 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
                     {canEdit && !isDone && !isSkipped && (
                       <button
                         type="button"
-                        disabled={!!completingStepId || isBlocked}
+                        disabled={!!completingStepId || (isBlocked && !STEPS_REQUIRING_LINK.has(s.step_key))}
                         onClick={() => void handleComplete(s)}
                         className={`px-3 py-1 rounded text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed ${
                           isBlocked
@@ -519,31 +568,42 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
                   )}
 
                   {canEdit && editingLinkStepId === s.id && STEPS_REQUIRING_LINK.has(s.step_key) && !isDone && !isSkipped && (
-                    <div className="mr-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                      <label className="block text-sm font-medium mb-2">קישור ל-{label}</label>
+                    <div className="mr-11 mt-1 p-3 bg-white rounded-lg border border-blue-300 shadow-md">
+                      <p className="text-xs font-semibold text-blue-700 mb-2">
+                        🔗 הוסף קישור ל-{label}
+                      </p>
                       <div className="flex gap-2">
                         <input
+                          autoFocus
                           type="url"
-                          value={stepLinks[s.id] ?? ''}
+                          value={stepLinks[s.id] ?? (s.step_key === 'FIXCAR_PHOTOS' ? fixcarValue : '')}
                           onChange={(e) => {
                             const v = e.target.value;
                             setStepLinks((prev) => ({ ...prev, [s.id]: v }));
                             if (s.step_key === 'FIXCAR_PHOTOS') setFixcarValue(v);
                           }}
-                          className="flex-1 border rounded px-3 py-2 text-sm"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void handleSaveLinkAndComplete(s);
+                            if (e.key === 'Escape') setEditingLinkStepId(null);
+                          }}
+                          className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                           dir="ltr"
-                          placeholder="הכנס קישור..."
+                          placeholder="https://..."
                         />
                         <button
                           type="button"
                           disabled={!!completingStepId}
                           onClick={() => void handleSaveLinkAndComplete(s)}
-                          className="px-4 py-2 bg-green-600 text-white rounded text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-3 py-1.5 bg-green-600 text-white rounded-md text-xs font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
                         >
-                          {completingStepId === s.id ? 'מבצע...' : 'שמור וסמן בוצע'}
+                          {completingStepId === s.id ? <span>⏳</span> : '✓ אישור'}
                         </button>
-                        <button type="button" onClick={() => setEditingLinkStepId(null)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm font-medium hover:bg-gray-300">
-                          ביטול
+                        <button
+                          type="button"
+                          onClick={() => setEditingLinkStepId(null)}
+                          className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-md text-xs font-semibold hover:bg-gray-200"
+                        >
+                          ✕
                         </button>
                       </div>
                     </div>

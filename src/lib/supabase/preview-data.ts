@@ -17,7 +17,9 @@ import type {
 const now = new Date().toISOString();
 const past = new Date(Date.now() - 86400000 * 3).toISOString();
 
-export const PREVIEW_USER_ID = '00000000-0000-0000-0000-000000000001';
+export const PREVIEW_USER_ID = '00000000-0000-0000-0000-000000000001';          // ערן - SERVICE_MANAGER
+export const PREVIEW_USER_ID_CEO = '00000000-0000-0000-0000-000000000002';      // עמית - CEO
+export const PREVIEW_USER_ID_OFFICE = '00000000-0000-0000-0000-000000000003';  // אילנה - OFFICE
 
 export const MOCK_BRANCHES: Branch[] = [
   { id: '10000000-0000-0000-0000-000000000001', name: 'נתיבות', created_at: now, updated_at: now },
@@ -27,8 +29,26 @@ export const MOCK_BRANCHES: Branch[] = [
 export const MOCK_PROFILES: Profile[] = [
   {
     id: PREVIEW_USER_ID,
-    full_name: 'משתמש תצוגה מקדימה',
+    full_name: 'ערן',
     role: 'SERVICE_MANAGER',
+    branch_id: MOCK_BRANCHES[0].id,
+    is_active: true,
+    created_at: now,
+    updated_at: now,
+  },
+  {
+    id: PREVIEW_USER_ID_CEO,
+    full_name: 'עמית',
+    role: 'CEO',
+    branch_id: null,
+    is_active: true,
+    created_at: now,
+    updated_at: now,
+  },
+  {
+    id: PREVIEW_USER_ID_OFFICE,
+    full_name: 'אילנה',
+    role: 'OFFICE',
     branch_id: MOCK_BRANCHES[0].id,
     is_active: true,
     created_at: now,

@@ -29,7 +29,7 @@ export default async function ClosureDetailPage({ params }: { params: Promise<{ 
 
   const { data: caseRow } = await supabase
     .from('cases')
-    .select('id, case_key, closed_at, branch_id, cars(license_plate)')
+    .select('id, case_key, closed_at, branch_id, opened_at, parts_status, insurance_type, claim_number, cars(license_plate, make, model), branches(name)')
     .eq('id', id)
     .single();
 
@@ -106,18 +106,38 @@ export default async function ClosureDetailPage({ params }: { params: Promise<{ 
   const blockedByApprovals = !estimateOk || !wheelsOk;
 
   const car = Array.isArray((caseRow as { cars: unknown }).cars)
-    ? (caseRow as { cars: { license_plate: string }[] }).cars[0]
-    : (caseRow as { cars: { license_plate: string } | null }).cars;
+    ? (caseRow as { cars: { license_plate: string; make: string | null; model: string | null }[] }).cars[0]
+    : (caseRow as { cars: { license_plate: string; make: string | null; model: string | null } | null }).cars;
+
+  const branch = Array.isArray((caseRow as { branches: unknown }).branches)
+    ? (caseRow as { branches: { name: string }[] }).branches[0]
+    : (caseRow as { branches: { name: string } | null }).branches;
+
+  const row = caseRow as {
+    case_key: string | null;
+    opened_at: string | null;
+    parts_status: string | null;
+    insurance_type: string | null;
+    claim_number: string | null;
+  };
 
   return (
     <ClosureDetailClient
       caseId={id}
-      caseKey={(caseRow as { case_key: string | null }).case_key}
+      caseKey={row.case_key}
       plate={car?.license_plate ?? '—'}
+      carMake={car?.make ?? null}
+      carModel={car?.model ?? null}
+      branchName={branch?.name ?? '—'}
+      openedAt={row.opened_at}
+      partsStatus={row.parts_status}
+      insuranceType={row.insurance_type}
+      claimNumber={row.claim_number}
       steps={steps}
       blockedByExtras={blockedByExtras}
       blockedByApprovals={blockedByApprovals}
-      canClose={profile?.role === 'OFFICE' || profile?.role === 'CEO'}
+      canClose={isPreview || profile?.role === 'OFFICE' || profile?.role === 'CEO'}
+      isPreview={isPreview}
     />
   );
 }
