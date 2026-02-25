@@ -46,37 +46,6 @@ export default async function CasesPage() {
   const { data: casesRows } = await casesQuery;
 
   const openCases = (casesRows ?? []).filter((c) => !(c as { closed_at: string | null }).closed_at);
-
-  const casesWithMeta = openCases.map((c) => {
-    const row = c as {
-      id: string;
-      case_key: string | null;
-      claim_number: string | null;
-      opened_at: string | null;
-      parts_status: string;
-      general_status: string;
-      cars: { license_plate: string | null; first_registration_date: string | null } | null;
-    };
-    const car = Array.isArray(row.cars) ? row.cars[0] : row.cars;
-    const plate = car?.license_plate ?? '—';
-    const firstReg = car?.first_registration_date ?? null;
-    let age: string = '—';
-    if (firstReg) {
-      const years = (Date.now() - new Date(firstReg).getTime()) / (365.25 * 24 * 60 * 60 * 1000);
-      age = years < 1 ? '<1' : Math.floor(years).toString();
-    }
-    return {
-      id: row.id,
-      plate,
-      claim: row.claim_number ?? '—',
-      opened_at: row.opened_at,
-      age,
-      parts_status: row.parts_status as PartsStatus,
-      general_status: row.general_status,
-      nextStep: caseIdToNextStep.get(row.id) || null,
-    };
-  });
-
   const caseIds = openCases.map((c) => (c as { id: string }).id);
   const { data: extrasByCaseData } = await supabase
     .from('bodywork_extras')
