@@ -68,9 +68,11 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
   const [fixcarValue, setFixcarValue] = useState(fixcarLink ?? '');
   const [updatingParts, setUpdatingParts] = useState(false);
 
-  // In PREVIEW mode, always start empty and load from localStorage (server can't access localStorage)
-  const [localSteps, setLocalSteps] = useState<StepRow[]>(isPreview ? [] : steps);
-  const effectiveSteps = localSteps.length > 0 ? localSteps : steps;
+  // Keep a local copy of steps so we can update the UI immediately when completing steps.
+  // In PREVIEW mode the server already uses the mock client, so `steps` are always in sync
+  // with the mock DB and persist across reloads.
+  const [localSteps, setLocalSteps] = useState<StepRow[]>(steps);
+  const effectiveSteps = localSteps;
 
   // Approvals from localStorage in PREVIEW (server-rendered data is stale)
   type ApprovalRow = { id: string; approval_type: string; status: string; rejection_note: string | null };
@@ -101,47 +103,6 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
     setStepLinks((prev) => ({ ...prev, [step.id]: fixcarLink }));
   }, [fixcarLink, effectiveSteps]);
 
-  // In PREVIEW mode, always load steps from localStorage (server cannot access localStorage).
-  useEffect(() => {
-    if (!isPreview) return;
-    if (!caseId) return;
-    if (initRef.current === caseId) return;
-    initRef.current = caseId;
-
-    (async () => {
-      const supabase = (await import('@/lib/supabase/client')).createClient();
-      const { data: runs } = await supabase
-        .from('case_workflow_runs')
-        .select('id')
-        .eq('case_id', caseId)
-        .eq('workflow_type', 'PROFESSIONAL');
-      const runIds = (runs as { id: string }[] | null)?.map((r) => r.id) ?? [];
-      if (runIds.length === 0) return;
-
-      const { data: stepsData } = await supabase
-        .from('case_workflow_steps')
-        .select('id, step_key, state, order_index, completed_at')
-        .in('run_id', runIds)
-        .order('order_index');
-
-      if (stepsData && stepsData.length > 0) {
-        const rows = stepsData as unknown as StepRow[];
-        // If corrupted (missing step_key), clear and let other logic recreate.
-        if (!rows.every((s) => !!s.step_key)) {
-          try {
-            localStorage.removeItem('mock_case_workflow_steps');
-          } catch {
-            // ignore
-          }
-          return;
-        }
-        setLocalSteps(rows);
-      }
-    })().catch((e) => {
-      console.error('[CaseDetailClientV2] Failed to load steps in preview:', e);
-    });
-  }, [isPreview, caseId]);
-
   // Load approvals from localStorage in PREVIEW (server-rendered data is always stale)
   useEffect(() => {
     if (!isPreview) return;
@@ -159,38 +120,10 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
     })().catch(console.error);
   }, [isPreview, caseId]);
 
-  // Reload steps after completion to ensure persistence
+  // Keep local steps in sync if the server props change (e.g. after navigation).
   useEffect(() => {
-    if (!isPreview) return;
-    if (completingStepId !== null) return; // Don't reload while completing
-
-    const reloadSteps = async () => {
-      const supabase = (await import('@/lib/supabase/client')).createClient();
-      const { data: runs } = await supabase
-        .from('case_workflow_runs')
-        .select('id')
-        .eq('case_id', caseId)
-        .eq('workflow_type', 'PROFESSIONAL');
-      const runIds = (runs as { id: string }[] | null)?.map((r) => r.id) ?? [];
-      if (runIds.length === 0) return;
-
-      const { data: stepsData } = await supabase
-        .from('case_workflow_steps')
-        .select('id, step_key, state, order_index, completed_at')
-        .in('run_id', runIds)
-        .order('order_index');
-
-      if (stepsData && stepsData.length > 0) {
-        setLocalSteps(stepsData as unknown as StepRow[]);
-      }
-    };
-
-    const timer = setTimeout(() => {
-      reloadSteps().catch(console.error);
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [isPreview, caseId, completingStepId]);
+    setLocalSteps(steps);
+  }, [steps]);
 
   const orderedSteps = useMemo(
     () => [...effectiveSteps].sort((a, b) => a.order_index - b.order_index),
@@ -271,6 +204,16 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
   }
 
   async function completePreview(step: StepRow, link?: string) {
+    // DEBUG: track when preview completion is triggered
+    if (typeof window !== 'undefined') {
+      // eslint-disable-next-line no-console
+      console.log('[CaseDetailClientV2] completePreview()', {
+        stepId: step.id,
+        stepKey: step.step_key,
+        currentState: step.state,
+      });
+    }
+
     const supabase = (await import('@/lib/supabase/client')).createClient();
     const {
       data: { user },
@@ -278,6 +221,7 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
     const userId = user?.id ?? null;
     const now = new Date().toISOString();
 
+    // 1) Persist FixCar link if relevant
     if (step.step_key === 'FIXCAR_PHOTOS') {
       const toSave = (link ?? '').trim();
       await supabase.from('cases').update({ fixcar_link: toSave || null } as never).eq('id', caseId);
@@ -286,19 +230,21 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
       setStepLinks((prev) => ({ ...prev, [step.id]: toSave }));
     }
 
+    // 2) Load run id for audit / run completion logic
     const { data: stepMeta } = await supabase
       .from('case_workflow_steps')
       .select('run_id')
       .eq('id', step.id)
       .single();
-    const runId = (stepMeta as { run_id?: string } | null)?.run_id;
+    const runId = (stepMeta as { run_id?: string } | null)?.run_id ?? null;
 
+    // 3) Mark the current step as DONE in the mock DB
     await supabase
       .from('case_workflow_steps')
       .update({ state: 'DONE', completed_at: now, completed_by: userId } as never)
       .eq('id', step.id);
 
-    // Activate the next PENDING step
+    // 4) Activate the next PENDING step in the mock DB (if any)
     const nextStep = orderedSteps.find(
       (s) => s.order_index === step.order_index + 1 && s.state === 'PENDING'
     );
@@ -309,7 +255,21 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
         .eq('id', nextStep.id);
     }
 
-    // Special: READY_FOR_OFFICE marks the professional run as COMPLETED
+    // 5) In preview we also mirror the change immediately into local state,
+    //    so the UI always updates even if mock persistence has quirks.
+    setLocalSteps((prev) =>
+      prev.map((s) => {
+        if (s.id === step.id) {
+          return { ...s, state: 'DONE', completed_at: now };
+        }
+        if (nextStep && s.id === nextStep.id) {
+          return { ...s, state: 'ACTIVE', /* keep existing completed_at, but ensure activated_at is set */ };
+        }
+        return s;
+      })
+    );
+
+    // 6) Special: READY_FOR_OFFICE marks the professional run as COMPLETED
     if (step.step_key === 'READY_FOR_OFFICE' && runId) {
       await supabase
         .from('case_workflow_runs')
@@ -321,6 +281,7 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
         .eq('id', caseId);
     }
 
+    // 7) Write audit event so the timeline stays correct
     await supabase.from('audit_events').insert(
       {
         entity_type: 'WORKFLOW_STEP',
@@ -330,17 +291,6 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
         payload: { step_key: step.step_key },
       } as never
     );
-
-    if (runId) {
-      const { data: updated } = await supabase
-        .from('case_workflow_steps')
-        .select('id, step_key, state, order_index, completed_at')
-        .eq('run_id', runId)
-        .order('order_index');
-      if (updated) setLocalSteps(updated as unknown as StepRow[]);
-    } else {
-      setLocalSteps((prev) => prev.map((s) => (s.id === step.id ? { ...s, state: 'DONE', completed_at: now } : s)));
-    }
   }
 
   // Core completion logic — called after all validations pass
