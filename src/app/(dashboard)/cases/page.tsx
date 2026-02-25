@@ -98,7 +98,7 @@ export default async function CasesPage() {
   };
 
   const caseIdToNextStep = new Map<string, string>();
-  if (stepsData) {
+  if (stepsData && runIds.length > 0) {
     const stepsByRun = new Map<string, typeof stepsData>();
     for (const step of stepsData) {
       const runId = (step as { run_id: string }).run_id;
@@ -122,6 +122,36 @@ export default async function CasesPage() {
       }
     }
   }
+
+  const casesWithMeta = openCases.map((c) => {
+    const row = c as {
+      id: string;
+      case_key: string | null;
+      claim_number: string | null;
+      opened_at: string | null;
+      parts_status: string;
+      general_status: string;
+      cars: { license_plate: string | null; first_registration_date: string | null } | null;
+    };
+    const car = Array.isArray(row.cars) ? row.cars[0] : row.cars;
+    const plate = car?.license_plate ?? '—';
+    const firstReg = car?.first_registration_date ?? null;
+    let age: string = '—';
+    if (firstReg) {
+      const years = (Date.now() - new Date(firstReg).getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+      age = years < 1 ? '<1' : Math.floor(years).toString();
+    }
+    return {
+      id: row.id,
+      plate,
+      claim: row.claim_number ?? '—',
+      opened_at: row.opened_at,
+      age,
+      parts_status: row.parts_status as PartsStatus,
+      general_status: row.general_status,
+      nextStep: caseIdToNextStep.get(row.id) || null,
+    };
+  });
 
   const canCreate = role === 'SERVICE_MANAGER' || role === 'OFFICE';
   const isCeo = role === 'CEO';
