@@ -31,6 +31,7 @@ export function CreateCaseButton({
     claim_type: '' as ClaimType | '',
     branch_id: branchId ?? (branches[0]?.id ?? ''),
   });
+  const [files, setFiles] = useState<File[]>([]);
 
   function generateRandomValues() {
     // Generate random plate number (Israeli format: 2-3 digits, 2-3 letters, 1-2 digits)
@@ -88,6 +89,17 @@ export function CreateCaseButton({
     // Get the caseId from the response
     const newCaseId = res?.caseId;
     
+    // Upload files if any were selected
+    if (newCaseId && files.length > 0) {
+      const { uploadCaseDocument } = await import('@/app/actions/documents');
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('case_id', newCaseId);
+        formData.append('file', file);
+        await uploadCaseDocument(formData);
+      }
+    }
+    
     setOpen(false);
     setForm({
       plate_number: '',
@@ -97,6 +109,7 @@ export function CreateCaseButton({
       claim_type: '',
       branch_id: branchId ?? branches[0]?.id ?? '',
     });
+    setFiles([]);
     
     // Refresh the cases page to show the new case
     // In PREVIEW mode, the case might not be immediately available, so we just refresh
@@ -121,6 +134,20 @@ export function CreateCaseButton({
       setError(res.error);
       return;
     }
+    
+    // Upload files if any were selected
+    const newCaseId = res?.caseId;
+    if (newCaseId && files.length > 0) {
+      const { uploadCaseDocument } = await import('@/app/actions/documents');
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('case_id', newCaseId);
+        formData.append('file', file);
+        await uploadCaseDocument(formData);
+      }
+    }
+    
+    setFiles([]);
     
     // Refresh the cases page to show the new case
     router.push('/cases');
@@ -226,6 +253,23 @@ export function CreateCaseButton({
                   </select>
                 </div>
               )}
+              <div>
+                <label className="block text-sm font-medium mb-1">קבצים מצורפים (אופציונלי)</label>
+                <input
+                  type="file"
+                  multiple
+                  onChange={(e) => {
+                    const selectedFiles = Array.from(e.target.files || []);
+                    setFiles(selectedFiles);
+                  }}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                />
+                {files.length > 0 && (
+                  <div className="mt-2 text-xs text-gray-600">
+                    {files.length} קובץ/ים נבחרו: {files.map((f) => f.name).join(', ')}
+                  </div>
+                )}
+              </div>
               {error && <p className="text-sm text-red-600">{error}</p>}
               <div className="flex gap-2 pt-2">
                 <button

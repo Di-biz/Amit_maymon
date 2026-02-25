@@ -128,10 +128,44 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
     })().catch(console.error);
   }, [isPreview, caseId]);
 
-  // Keep local steps in sync if the server props change (e.g. after navigation).
+  // Load steps from localStorage/mock client when component mounts or caseId changes
   useEffect(() => {
-    setLocalSteps(steps);
-  }, [steps]);
+    if (!caseId) return;
+    
+    const loadSteps = async () => {
+      const supabase = (await import('@/lib/supabase/client')).createClient();
+      
+      // Get all runs for this case
+      const { data: runs } = await supabase
+        .from('case_workflow_runs')
+        .select('id')
+        .eq('case_id', caseId)
+        .eq('workflow_type', 'PROFESSIONAL');
+      
+      const runIds = (runs as { id: string }[] | null)?.map((r) => r.id) ?? [];
+      if (runIds.length === 0) {
+        // No runs yet, use server steps
+        setLocalSteps(steps);
+        return;
+      }
+
+      // Load steps from database
+      const { data: stepsData } = await supabase
+        .from('case_workflow_steps')
+        .select('id, step_key, state, order_index, completed_at')
+        .in('run_id', runIds)
+        .order('order_index');
+      
+      if (stepsData && stepsData.length > 0) {
+        setLocalSteps(stepsData as StepRow[]);
+      } else {
+        // Fallback to server steps
+        setLocalSteps(steps);
+      }
+    };
+
+    loadSteps().catch(console.error);
+  }, [caseId, steps]);
 
   const orderedSteps = useMemo(
     () => [...effectiveSteps].sort((a, b) => a.order_index - b.order_index),

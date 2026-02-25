@@ -15,6 +15,7 @@ interface CaseRow {
   general_status: string;
   hasExtrasInTreatment: boolean;
   approvalBlocked: boolean;
+  nextStep: string | null;
 }
 
 export function CasesTable({
@@ -38,6 +39,18 @@ export function CasesTable({
     },
     { key: 'age', label: 'גיל רכב' },
     { key: 'parts_status', label: 'חלקים' },
+    {
+      key: 'nextStep',
+      label: 'השלב הבא',
+      render: (row) =>
+        row.nextStep ? (
+          <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+            {row.nextStep}
+          </span>
+        ) : (
+          <span className="text-gray-400 text-xs">—</span>
+        ),
+    },
     {
       key: 'blockers',
       label: 'חסימות',

@@ -73,6 +73,7 @@ export default async function CasesPage() {
       age,
       parts_status: row.parts_status as PartsStatus,
       general_status: row.general_status,
+      nextStep: caseIdToNextStep.get(row.id) || null,
     };
   });
 
@@ -93,6 +94,64 @@ export default async function CasesPage() {
   const caseIdsApprovalBlocked = new Set<string>();
   for (const a of approvalsByCase) {
     if (a.status !== 'APPROVED') caseIdsApprovalBlocked.add(a.case_id);
+  }
+
+  // Get next step for each case
+  const { data: runsData } = await supabase
+    .from('case_workflow_runs')
+    .select('id, case_id')
+    .in('case_id', caseIds)
+    .eq('workflow_type', 'PROFESSIONAL')
+    .eq('status', 'ACTIVE');
+  const runIds = (runsData ?? []).map((r) => (r as { id: string; case_id: string }).id);
+  const runIdToCaseId = new Map(
+    (runsData ?? []).map((r) => [(r as { id: string; case_id: string }).id, (r as { id: string; case_id: string }).case_id])
+  );
+
+  const { data: stepsData } = await supabase
+    .from('case_workflow_steps')
+    .select('id, run_id, step_key, state, order_index')
+    .in('run_id', runIds.length > 0 ? runIds : ['00000000-0000-0000-0000-000000000000'])
+    .order('order_index');
+
+  const STEP_LABELS: Record<string, string> = {
+    OPEN_CASE: 'פתיחת תיק',
+    FIXCAR_PHOTOS: 'צילום FixCar',
+    WHEELS_CHECK: 'בדיקת גלגלים',
+    PREP_ESTIMATE: 'הכנת אומדן',
+    SUMMARIZE_ESTIMATE: 'סיכום אומדן',
+    SEND_TO_APPRAISER: 'שליחה לשמאי',
+    WAIT_APPRAISER_APPROVAL: 'המתנה לאישור שמאי',
+    ENTER_WORK: 'כניסה לעבודה',
+    QUALITY_CONTROL: 'בקרת איכות',
+    WASH: 'שטיפה',
+    READY_FOR_OFFICE: 'מוכן למשרד',
+  };
+
+  const caseIdToNextStep = new Map<string, string>();
+  if (stepsData) {
+    const stepsByRun = new Map<string, typeof stepsData>();
+    for (const step of stepsData) {
+      const runId = (step as { run_id: string }).run_id;
+      if (!stepsByRun.has(runId)) {
+        stepsByRun.set(runId, []);
+      }
+      stepsByRun.get(runId)!.push(step);
+    }
+
+    for (const [runId, steps] of stepsByRun.entries()) {
+      const caseId = runIdToCaseId.get(runId);
+      if (!caseId) continue;
+
+      const sortedSteps = [...steps].sort((a, b) => 
+        (a as { order_index: number }).order_index - (b as { order_index: number }).order_index
+      );
+      const activeStep = sortedSteps.find((s) => (s as { state: string }).state === 'ACTIVE');
+      if (activeStep) {
+        const stepKey = (activeStep as { step_key: string }).step_key;
+        caseIdToNextStep.set(caseId, STEP_LABELS[stepKey] || stepKey);
+      }
+    }
   }
 
   const canCreate = role === 'SERVICE_MANAGER' || role === 'OFFICE';
