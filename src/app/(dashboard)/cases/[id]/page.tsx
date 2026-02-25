@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect, notFound } from 'next/navigation';
 import type { PartsStatus, GeneralStatus } from '@/types/database';
 import { PROFESSIONAL_WORKFLOW_STEPS } from '@/types/database';
-import { CaseDetailClient } from './CaseDetailClient';
+import { CaseDetailClientV2 } from './CaseDetailClientV2';
 
 export default async function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -272,7 +272,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   }
 
   return (
-    <CaseDetailClient
+    <CaseDetailClientV2
       caseId={id}
       caseKey={(caseRow as { case_key: string | null }).case_key}
       claimNumber={(caseRow as { claim_number: string | null }).claim_number}
