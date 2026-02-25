@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { decideApproval } from '@/app/actions/approvals';
 
 const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
@@ -177,6 +178,17 @@ export function ApprovalsList({ approvals: initialApprovals }: { approvals: Appr
                   </a>
                 </div>
               )}
+            </div>
+
+            {/* View full case button */}
+            <div className="border-t pt-4 mb-4">
+              <Link
+                href={`/cases/${selected.case_id}?from=approvals`}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm"
+              >
+                <span>👁️</span>
+                <span>צפה בתיק המלא</span>
+              </Link>
             </div>
 
             {/* Actions */}

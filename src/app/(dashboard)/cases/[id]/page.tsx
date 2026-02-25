@@ -257,6 +257,14 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   auditRows.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   auditRows = auditRows.slice(0, 20);
 
+  // Load case documents
+  const { data: documentsData } = await supabase
+    .from('case_documents')
+    .select('id, file_name, file_path, file_size, mime_type, created_at')
+    .eq('case_id', id)
+    .order('created_at', { ascending: false });
+  const documents = (documentsData ?? []) as { id: string; file_name: string; file_path: string; file_size: number | null; mime_type: string | null; created_at: string }[];
+
   const car = Array.isArray((caseRow as { cars: unknown }).cars)
     ? (caseRow as { cars: { license_plate: string; first_registration_date: string | null }[] }).cars[0]
     : (caseRow as { cars: { license_plate: string; first_registration_date: string | null } | null }).cars;
@@ -287,6 +295,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
       approvals={approvals ?? []}
       extras={extras ?? []}
       auditEvents={auditRows ?? []}
+      documents={documents}
       role={profile?.role ?? null}
     />
   );

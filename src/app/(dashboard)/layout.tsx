@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import type { UserRole } from '@/types/database';
 import { PreviewRoleSwitcher } from '@/components/preview/PreviewRoleSwitcher';
+import { NotificationsBadge } from '@/components/NotificationsBadge';
 
 const ROLE_LINKS: Record<UserRole, { label: string; href: string }[]> = {
   SERVICE_MANAGER: [
@@ -98,8 +99,9 @@ export default async function DashboardLayout({
             <div className="bg-white/20 px-3 py-1 rounded-full">
               <span className="font-medium">{profile?.full_name ?? user.email}</span>
             </div>
-            <div className="bg-white/20 px-3 py-1 rounded-full">
+            <div className="bg-white/20 px-3 py-1 rounded-full relative">
               <span>{roleLabel}</span>
+              <NotificationsBadge userId={user.id} />
             </div>
             <div className="bg-white/20 px-3 py-1 rounded-full">
               <span>{branchName}</span>

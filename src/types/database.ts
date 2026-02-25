@@ -134,6 +134,18 @@ export interface BodyworkExtra {
   updated_at: string;
 }
 
+export interface CaseDocument {
+  id: string;
+  case_id: string;
+  file_name: string;
+  file_path: string;
+  file_size: number | null;
+  mime_type: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export type NotificationType =
   | 'BLOCKED_ACTION'
   | 'CEO_REJECTED'

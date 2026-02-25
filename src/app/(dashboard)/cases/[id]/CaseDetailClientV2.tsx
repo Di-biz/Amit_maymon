@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { completeActiveStep, returnToEstimate } from '@/app/actions/workflow';
+import { uploadCaseDocument, deleteCaseDocument } from '@/app/actions/documents';
+import { createClient } from '@/lib/supabase/client';
 import type { PartsStatus } from '@/types/database';
 
 const STEP_LABELS: Record<string, string> = {
@@ -39,6 +41,7 @@ interface CaseDetailClientProps {
   approvals: { id: string; approval_type: string; status: string; rejection_note: string | null }[];
   extras: { id: string; description: string; status: string }[];
   auditEvents: { id: string; action: string; created_at: string; payload: unknown }[];
+  documents: { id: string; file_name: string; file_path: string; file_size: number | null; mime_type: string | null; created_at: string }[];
   role: string | null;
 }
 
@@ -55,6 +58,7 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
     approvals,
     extras,
     auditEvents,
+    documents,
     role,
   } = props;
 
@@ -85,6 +89,9 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
   const [editingLinkStepId, setEditingLinkStepId] = useState<string | null>(null);
   const [stepLinks, setStepLinks] = useState<Record<string, string>>({});
   const [returning, setReturning] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [documentError, setDocumentError] = useState<string | null>(null);
+  const [localDocuments, setLocalDocuments] = useState(documents);
 
   const initRef = useRef<string | null>(null);
   const approvalsInitRef = useRef<string | null>(null);
@@ -611,6 +618,112 @@ export function CaseDetailClientV2(props: CaseDetailClientProps) {
             <button type="button" disabled={returning} onClick={() => void handleReturnToEstimate()} className="text-sm text-amber-600 underline">
               {returning ? '...' : 'החזר לאומדן'}
             </button>
+          </div>
+        )}
+      </div>
+
+      {/* Documents Section */}
+      <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+            <span className="text-2xl">📎</span>
+            מסמכים וקבצים
+          </h2>
+          {canEdit && (
+            <label className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium cursor-pointer hover:bg-blue-700 transition-colors">
+              <input
+                type="file"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setDocumentError(null);
+                  setUploadingDocument(true);
+                  const formData = new FormData();
+                  formData.append('case_id', caseId);
+                  formData.append('file', file);
+                  const res = await uploadCaseDocument(formData);
+                  if (res?.error) {
+                    setDocumentError(res.error);
+                  } else {
+                    // Reload documents
+                    const supabase = createClient();
+                    const { data } = await supabase
+                      .from('case_documents')
+                      .select('id, file_name, file_path, file_size, mime_type, created_at')
+                      .eq('case_id', caseId)
+                      .order('created_at', { ascending: false });
+                    if (data) setLocalDocuments(data as typeof documents);
+                    e.target.value = ''; // Reset input
+                  }
+                  setUploadingDocument(false);
+                }}
+                disabled={uploadingDocument}
+              />
+              {uploadingDocument ? 'מעלה...' : '+ הוסף קובץ'}
+            </label>
+          )}
+        </div>
+        {documentError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+            ⚠️ {documentError}
+          </div>
+        )}
+        {localDocuments.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">
+            <div className="text-4xl mb-2">📄</div>
+            <p className="text-sm">אין קבצים להצגה</p>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {localDocuments.map((doc) => {
+              const supabase = createClient();
+              const { data: urlData } = supabase.storage
+                .from('case-documents')
+                .getPublicUrl(doc.file_path);
+              const fileSize = doc.file_size ? (doc.file_size / 1024).toFixed(1) + ' KB' : '—';
+              const isImage = doc.mime_type?.startsWith('image/');
+              
+              return (
+                <div key={doc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="flex-shrink-0 text-2xl">
+                      {isImage ? '🖼️' : '📄'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <a
+                        href={urlData.publicUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline truncate block"
+                      >
+                        {doc.file_name}
+                      </a>
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        {fileSize} • {new Date(doc.created_at).toLocaleDateString('he-IL')}
+                      </div>
+                    </div>
+                  </div>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!confirm('האם אתה בטוח שברצונך למחוק קובץ זה?')) return;
+                        const res = await deleteCaseDocument(doc.id);
+                        if (res?.error) {
+                          setDocumentError(res.error);
+                        } else {
+                          setLocalDocuments((prev) => prev.filter((d) => d.id !== doc.id));
+                        }
+                      }}
+                      className="flex-shrink-0 px-3 py-1 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+                    >
+                      🗑️ מחק
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
