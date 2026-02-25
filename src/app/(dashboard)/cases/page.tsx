@@ -108,6 +108,19 @@ export default async function CasesPage() {
     caseIdsWithExtras.has(c.id) || caseIdsApprovalBlocked.has(c.id)
   ).length;
 
+  // Calculate statistics by status
+  const statsByPartsStatus = {
+    AVAILABLE: casesWithMeta.filter((c) => c.parts_status === 'AVAILABLE').length,
+    ORDERED: casesWithMeta.filter((c) => c.parts_status === 'ORDERED').length,
+    NO_PARTS: casesWithMeta.filter((c) => c.parts_status === 'NO_PARTS').length,
+  };
+
+  const statsByGeneralStatus = {
+    IN_PROGRESS: casesWithMeta.filter((c) => c.general_status === 'IN_PROGRESS').length,
+    WAITING_APPROVAL: casesWithMeta.filter((c) => c.general_status === 'WAITING_APPROVAL').length,
+    READY_FOR_CLOSURE: casesWithMeta.filter((c) => c.general_status === 'READY_FOR_CLOSURE').length,
+  };
+
   return (
     <div>
       <div className="mb-6">
@@ -128,6 +141,82 @@ export default async function CasesPage() {
               isCeo={isCeo}
             />
           )}
+        </div>
+
+        {/* Statistics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-4 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-blue-100 text-sm font-medium">סה"כ תיקים פתוחים</p>
+                <p className="text-3xl font-bold mt-1">{totalCases}</p>
+              </div>
+              <span className="text-4xl opacity-80">📊</span>
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-4 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-green-100 text-sm font-medium">חלקים זמינים</p>
+                <p className="text-3xl font-bold mt-1">{statsByPartsStatus.AVAILABLE}</p>
+              </div>
+              <span className="text-4xl opacity-80">✅</span>
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-xl shadow-lg p-4 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-yellow-100 text-sm font-medium">חלקים הוזמנו</p>
+                <p className="text-3xl font-bold mt-1">{statsByPartsStatus.ORDERED}</p>
+              </div>
+              <span className="text-4xl opacity-80">⏳</span>
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl shadow-lg p-4 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-red-100 text-sm font-medium">אין חלקים</p>
+                <p className="text-3xl font-bold mt-1">{statsByPartsStatus.NO_PARTS}</p>
+              </div>
+              <span className="text-4xl opacity-80">❌</span>
+            </div>
+          </div>
+        </div>
+
+        {/* General Status Statistics */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-white rounded-lg shadow-md border border-gray-200 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm font-medium">בטיפול</p>
+                <p className="text-2xl font-bold text-gray-800 mt-1">{statsByGeneralStatus.IN_PROGRESS}</p>
+              </div>
+              <span className="text-3xl">🔧</span>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-md border border-gray-200 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm font-medium">ממתין לאישור</p>
+                <p className="text-2xl font-bold text-gray-800 mt-1">{statsByGeneralStatus.WAITING_APPROVAL}</p>
+              </div>
+              <span className="text-3xl">⏸️</span>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-md border border-gray-200 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm font-medium">מוכן לסגירה</p>
+                <p className="text-2xl font-bold text-gray-800 mt-1">{statsByGeneralStatus.READY_FOR_CLOSURE}</p>
+              </div>
+              <span className="text-3xl">✅</span>
+            </div>
+          </div>
         </div>
         {role === 'SERVICE_MANAGER' && (
           <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-4">
