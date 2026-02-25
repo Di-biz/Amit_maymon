@@ -22,28 +22,26 @@ export function NotificationsBadge({ userId }: { userId: string }) {
           .eq('read', false)
           .order('created_at', { ascending: false });
         
-        const count = data?.length ?? 0;
+        const rows = (data ?? []) as { id: string; created_at: string }[];
+        const count = rows.length;
         setUnreadCount(count);
 
         // Check for new notifications for PWA
-        if (data && data.length > 0) {
-          const latestId = data[0].id;
+        if (rows.length > 0) {
+          const latestId = rows[0].id;
           if (lastNotificationIdRef.current && latestId !== lastNotificationIdRef.current) {
-            // New notification arrived - show browser notification
-            const latest = data[0];
             if ('Notification' in window && Notification.permission === 'granted') {
-              // Get full notification details
-              const { data: fullNotification } = await supabase
+              const { data: fullNotificationData } = await supabase
                 .from('notifications')
                 .select('title, body, type')
                 .eq('id', latestId)
                 .single();
-              
+              const fullNotification = fullNotificationData as { title: string; body: string | null; type: string | null } | null;
               if (fullNotification) {
                 new Notification(fullNotification.title || 'התראה חדשה', {
                   body: fullNotification.body || undefined,
-                  icon: '/icon-192x192.png',
-                  badge: '/icon-192x192.png',
+                  icon: '/icon-192.png',
+                  badge: '/icon-192.png',
                   tag: fullNotification.type || 'notification',
                 });
               }

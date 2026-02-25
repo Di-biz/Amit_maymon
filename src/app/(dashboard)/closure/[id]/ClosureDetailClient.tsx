@@ -185,11 +185,11 @@ export function ClosureDetailClient({
   // CLOSE_CASE is blocked if: extras in treatment OR missing closure approval
   // Other steps are blocked by blockedByApprovals (estimate/wheels)
   // Don't show warning if case is already closed
+  const allDone = normalizedSteps.length > 0 && normalizedSteps.every((s) => s.state === 'DONE');
   const isCaseClosed = allDone;
-  const closeBlocked = activeStep?.step_key === 'CLOSE_CASE' 
+  const closeBlocked = activeStep?.step_key === 'CLOSE_CASE'
     ? (blockedByExtras || effectiveClosureApproval !== 'APPROVED')
     : (blockedByExtras || blockedByApprovals);
-  const allDone = normalizedSteps.length > 0 && normalizedSteps.every((s) => s.state === 'DONE');
   const doneCount = normalizedSteps.filter((s) => s.state === 'DONE').length;
 
   const parts = partsStatus ? PARTS_STATUS_LABELS[partsStatus] : null;

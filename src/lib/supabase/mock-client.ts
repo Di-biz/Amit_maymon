@@ -158,7 +158,7 @@ function pick<T extends Record<string, unknown>>(row: T, keys: string[], tableNa
 function expandCars(row: Record<string, unknown>, selectCarKeys: string[]): Record<string, unknown> {
   const carId = row.car_id as string | undefined;
   if (!carId) return { ...row, cars: null };
-  const car = (mutableStore.cars as Record<string, unknown>[]).find((c) => c.id === carId);
+  const car = (mutableStore.cars as unknown as Record<string, unknown>[]).find((c) => c.id === carId);
   if (!car) return { ...row, cars: null };
   const carRow = pick(car as unknown as Record<string, unknown>, selectCarKeys, 'cars');
   return { ...row, cars: carRow };
@@ -167,7 +167,7 @@ function expandCars(row: Record<string, unknown>, selectCarKeys: string[]): Reco
 function expandBranches(row: Record<string, unknown>, selectBranchKeys: string[]): Record<string, unknown> {
   const branchId = row.branch_id as string | undefined;
   if (!branchId) return { ...row, branches: null };
-  const branch = (mutableStore.branches as Record<string, unknown>[]).find((b) => b.id === branchId);
+  const branch = (mutableStore.branches as unknown as Record<string, unknown>[]).find((b) => b.id === branchId);
   if (!branch) return { ...row, branches: null };
   return { ...row, branches: pick(branch as unknown as Record<string, unknown>, selectBranchKeys, 'branches') };
 }
@@ -175,13 +175,13 @@ function expandBranches(row: Record<string, unknown>, selectBranchKeys: string[]
 function expandCases(row: Record<string, unknown>, caseSelect: string): Record<string, unknown> {
   const caseId = row.case_id as string | undefined;
   if (!caseId) return { ...row, cases: null };
-  const caseRow = (mutableStore.cases as Record<string, unknown>[]).find((c) => c.id === caseId) as Record<string, unknown> | undefined;
+  const caseRow = (mutableStore.cases as unknown as Record<string, unknown>[]).find((c) => c.id === caseId) as Record<string, unknown> | undefined;
   if (!caseRow) return { ...row, cases: null };
   let c: Record<string, unknown> = { ...caseRow };
   if (caseSelect.includes('cars(')) {
     const carKeys = caseSelect.includes('license_plate') ? ['license_plate'] : [];
     const carId = caseRow.car_id as string;
-    const car = (mutableStore.cars as Record<string, unknown>[]).find((x) => x.id === carId);
+    const car = (mutableStore.cars as unknown as Record<string, unknown>[]).find((x) => x.id === carId);
     c = { ...c, cars: car ? pick(car as unknown as Record<string, unknown>, carKeys, 'cars') : null };
   }
   if (caseSelect.includes('branches(')) c = expandBranches(c, ['name']);
@@ -207,9 +207,9 @@ function runQuery(
   let raw: Record<string, unknown>[] | undefined;
   if (table === 'case_workflow_steps') {
     // Start with items from mutableStore (may be empty initially)
-    raw = (mutableStore[table] as Record<string, unknown>[] | undefined) || [];
+    raw = (mutableStore[table] as unknown as Record<string, unknown>[] | undefined) || [];
   } else {
-    raw = mutableStore[table] as Record<string, unknown>[] | undefined;
+    raw = mutableStore[table] as unknown as Record<string, unknown>[] | undefined;
   }
   
   // DEBUG: Log query for workflow steps
@@ -233,7 +233,7 @@ function runQuery(
       // For workflow steps, ALWAYS load from both mutableStore and localStorage
       if (table === 'case_workflow_steps') {
         // Get items from mutableStore (which has new cases created on server or client)
-        const mutableItems = (mutableStore[table] as Record<string, unknown>[] | undefined) || [];
+        const mutableItems = (mutableStore[table] as unknown as Record<string, unknown>[] | undefined) || [];
         const mutableIds = new Set(mutableItems.map((item) => item.id));
         
         // Load from localStorage if available
@@ -263,7 +263,7 @@ function runQuery(
         // This ensures all steps are available, whether created on server or client
         raw = [...mutableItems, ...localStorageItems];
         // Update mutableStore with all items so they're available for future queries
-        mutableStore[table] = raw as unknown;
+        (mutableStore as Record<string, unknown>)[table] = raw;
         
         // DEBUG: Log what we're loading
         try {
@@ -369,7 +369,7 @@ function runQuery(
             const newItems = storedItems.filter((item) => !existingIds.has(item.id));
             if (newItems.length > 0 && raw) {
               raw = [...raw, ...newItems];
-              mutableStore[table] = raw as unknown;
+              (mutableStore as Record<string, unknown>)[table] = raw;
             }
           } catch (e) {
             console.error('[MOCK CLIENT] Error parsing localStorage for', table, ':', e);
@@ -444,7 +444,7 @@ function runQuery(
     
     // If we fixed any items, update both mutableStore and localStorage
     if (needsUpdate) {
-      mutableStore[table] = raw as unknown;
+      (mutableStore as Record<string, unknown>)[table] = raw;
       // Also update localStorage (client-side only)
       if (typeof window !== 'undefined') {
         try {
@@ -875,7 +875,7 @@ function buildChain(table: TableName) {
                 // Update items in localStorage that match the filter
                 const updatedItems = items.map((item: Record<string, unknown>) => {
                   if (item[column] === value) {
-                    const updated = { ...item, ...payloadObj, updated_at: updatedAt };
+                    const updated: Record<string, unknown> = { ...item, ...payloadObj, updated_at: updatedAt };
                     if (table === 'case_workflow_steps' && typeof window !== 'undefined') {
                       console.log('[MOCK CLIENT] Updating workflow step in localStorage:', {
                         id: item.id,

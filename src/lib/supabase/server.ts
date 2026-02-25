@@ -9,7 +9,7 @@ const isPreview = process.env.NEXT_PUBLIC_PREVIEW_MODE === 'true';
 
 export async function createClient() {
   if (isPreview) {
-    return createMockSupabaseClient() as ReturnType<typeof createServerClient<Database>>;
+    return createMockSupabaseClient() as unknown as ReturnType<typeof createServerClient<Database>>;
   }
 
   const cookieStore = await cookies();

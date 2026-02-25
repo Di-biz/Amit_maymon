@@ -6,7 +6,7 @@ const isPreview = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_PREVI
 
 export function createClient() {
   if (isPreview) {
-    return createMockSupabaseClient() as ReturnType<typeof createBrowserClient<Database>>;
+    return createMockSupabaseClient() as unknown as ReturnType<typeof createBrowserClient<Database>>;
   }
   return createBrowserClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

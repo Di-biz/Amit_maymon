@@ -11,7 +11,7 @@ export async function markRead(notificationId: string) {
 
   const { error } = await supabase
     .from('notifications')
-    .update({ read: true })
+    .update({ read: true } as never)
     .eq('id', notificationId)
     .eq('user_id', user.id);
 
@@ -26,6 +26,6 @@ export async function markAllRead() {
   } = await supabase.auth.getUser();
   if (!user) return { error: 'לא מחובר' };
 
-  await supabase.from('notifications').update({ read: true }).eq('user_id', user.id).eq('read', false);
+  await supabase.from('notifications').update({ read: true } as never).eq('user_id', user.id).eq('read', false);
   return { ok: true };
 }

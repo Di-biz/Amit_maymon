@@ -44,7 +44,8 @@ export function CasesTable({
       label: 'השלב הבא',
       render: (row) =>
         row.nextStep ? (
-          <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs font-semibold ring-1 ring-indigo-200 whitespace-nowrap">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
             {row.nextStep}
           </span>
         ) : (

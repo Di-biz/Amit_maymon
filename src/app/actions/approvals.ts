@@ -18,12 +18,13 @@ export async function decideApproval(input: ApprovalDecisionInput) {
   const profile = profileData as { id: string; role: string } | null;
   if (profile?.role !== 'CEO') return { error: 'רק מנכ"ל יכול לאשר/לדחות' };
 
-  const { data: approval } = await supabase
+  const { data: approvalData } = await supabase
     .from('ceo_approvals')
     .select('id, case_id')
     .eq('id', input.approval_id)
     .single();
-  if (!approval) return { error: 'אישור לא נמצא' };
+  if (!approvalData) return { error: 'אישור לא נמצא' };
+  const approval = approvalData as { id: string; case_id: string };
 
   const now = new Date().toISOString();
   const { error: updateErr } = await supabase
@@ -48,18 +49,18 @@ export async function decideApproval(input: ApprovalDecisionInput) {
   } as never);
 
   if (input.status === 'REJECTED') {
-    const { data: caseRow } = await supabase
+    const { data: caseData } = await supabase
       .from('cases')
       .select('branch_id')
       .eq('id', approval.case_id)
       .single();
-    const branchId = caseRow?.branch_id;
+    const branchId = (caseData as { branch_id: string } | null)?.branch_id;
     const { data: managers } = await supabase
       .from('profiles')
       .select('id')
       .eq('role', 'SERVICE_MANAGER')
       .eq('branch_id', branchId ?? '');
-    for (const m of managers ?? []) {
+    for (const m of (managers ?? []) as { id: string }[]) {
       await supabase.from('notifications').insert({
         user_id: m.id,
         type: 'CEO_REJECTED',

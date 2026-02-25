@@ -30,7 +30,7 @@ async function writeAudit(
     action,
     user_id: userId,
     payload: payload ?? null,
-  });
+  } as never);
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -69,11 +69,11 @@ export async function createCase(input: CreateCaseInput) {
     .maybeSingle();
 
   if (existingCar) {
-    carId = existingCar.id;
+    carId = (existingCar as { id: string }).id;
     if (input.first_registration_date) {
       await supabase
         .from('cars')
-        .update({ first_registration_date: input.first_registration_date })
+        .update({ first_registration_date: input.first_registration_date } as never)
         .eq('id', carId);
     }
   } else {
@@ -83,11 +83,11 @@ export async function createCase(input: CreateCaseInput) {
         branch_id: branchId,
         license_plate: input.plate_number,
         first_registration_date: input.first_registration_date,
-      })
+      } as never)
       .select('id')
       .single();
     if (carErr || !newCar) return { error: carErr?.message ?? 'שגיאה ביצירת רכב' };
-    carId = newCar.id;
+    carId = (newCar as { id: string }).id;
   }
 
   const caseKey = `${input.plate_number}-${input.claim_number ?? 'PRIVATE'}`;
@@ -104,7 +104,7 @@ export async function createCase(input: CreateCaseInput) {
       claim_type: input.claim_type ?? null,
       opened_at: openedAt,
       created_by: user.id,
-    })
+    } as never)
     .select('id')
     .single();
 
@@ -118,19 +118,19 @@ export async function createCase(input: CreateCaseInput) {
       case_id: caseId,
       workflow_type: 'PROFESSIONAL',
       status: 'ACTIVE',
-    })
+    } as never)
     .select('id')
     .single();
 
   if (runErr || !run) return { error: runErr?.message ?? 'שגיאה ביצירת workflow' };
-  const runId = run.id;
+  const runId = (run as { id: string }).id;
 
   const age = vehicleAgeYears(input.first_registration_date);
   const skipWheels = age !== null && age <= 2;
 
   for (let i = 0; i < PROFESSIONAL_WORKFLOW_STEPS.length; i++) {
     const stepKey = PROFESSIONAL_WORKFLOW_STEPS[i];
-    let state: 'PENDING' | 'ACTIVE' | 'DONE' | 'SKIPPED' = 'ACTIVE'; // All steps start as ACTIVE for testing
+    let state: 'PENDING' | 'ACTIVE' | 'DONE' | 'SKIPPED' = 'ACTIVE';
     let completedAt: string | null = null;
     let activatedAt: string | null = openedAt;
 
@@ -143,7 +143,6 @@ export async function createCase(input: CreateCaseInput) {
       completedAt = openedAt;
       activatedAt = null;
     } else {
-      // All other steps should be ACTIVE
       state = 'ACTIVE';
       activatedAt = openedAt;
       completedAt = null;
@@ -156,7 +155,7 @@ export async function createCase(input: CreateCaseInput) {
       order_index: i,
       activated_at: activatedAt,
       completed_at: completedAt,
-    });
+    } as never);
   }
 
   await writeAudit(supabase, 'CASE', caseId, 'CASE_CREATED', user.id, { case_key: caseKey });
@@ -164,14 +163,14 @@ export async function createCase(input: CreateCaseInput) {
     step_key: 'FIXCAR_PHOTOS',
   });
   if (skipWheels) {
-    const steps = await supabase
+    const { data: wheelsStepData } = await supabase
       .from('case_workflow_steps')
       .select('id')
       .eq('run_id', runId)
       .eq('step_key', 'WHEELS_CHECK')
       .single();
-    if (steps.data)
-      await writeAudit(supabase, 'WORKFLOW_STEP', steps.data.id, 'STEP_SKIPPED', user.id, {
+    if (wheelsStepData)
+      await writeAudit(supabase, 'WORKFLOW_STEP', (wheelsStepData as { id: string }).id, 'STEP_SKIPPED', user.id, {
         reason: 'vehicle_age_under_2',
       });
   }
@@ -198,29 +197,30 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
   const profile = profileData as { id: string; role: string } | null;
   const role = profile?.role as UserRole | undefined;
 
-  const { data: caseRow } = await supabase
+  const { data: caseData } = await supabase
     .from('cases')
     .select('id, fixcar_link, parts_status')
     .eq('id', caseId)
     .single();
-  if (!caseRow) return { error: 'תיק לא נמצא' };
+  if (!caseData) return { error: 'תיק לא נמצא' };
+  const caseRow = caseData as { id: string; fixcar_link: string | null; parts_status: string | null };
 
-  const { data: run } = await supabase
+  const { data: runData } = await supabase
     .from('case_workflow_runs')
     .select('id, workflow_type')
     .eq('case_id', caseId)
     .eq('status', 'ACTIVE')
     .maybeSingle();
-  if (!run) return { error: 'לא נמצא workflow פעיל' };
+  if (!runData) return { error: 'לא נמצא workflow פעיל' };
+  const run = runData as { id: string; workflow_type: string };
 
   const isClosure = run.workflow_type === 'CLOSURE';
   if (isClosure && role !== 'OFFICE') return { error: 'רק משרד יכול להשלים שלבי סגירה' };
   if (!isClosure && role !== 'SERVICE_MANAGER') return { error: 'רק מנהל שירות יכול להשלים שלב' };
 
   let activeStep: { id: string; step_key: string; order_index: number } | null = null;
-  
+
   if (stepId) {
-    // Complete specific step by ID
     const { data: stepData } = await supabase
       .from('case_workflow_steps')
       .select('id, step_key, order_index, state')
@@ -228,12 +228,12 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
       .eq('run_id', run.id)
       .single();
     if (!stepData) return { error: 'שלב לא נמצא' };
-    if (stepData.state !== 'ACTIVE' && stepData.state !== 'PENDING') {
+    const step = stepData as { id: string; step_key: string; order_index: number; state: string };
+    if (step.state !== 'ACTIVE' && step.state !== 'PENDING') {
       return { error: 'שלב זה כבר הושלם או דולג' };
     }
-    activeStep = stepData as { id: string; step_key: string; order_index: number };
+    activeStep = step;
   } else {
-    // Find first active step (backward compatibility)
     const { data: activeSteps } = await supabase
       .from('case_workflow_steps')
       .select('id, step_key, order_index')
@@ -241,7 +241,10 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
       .eq('state', 'ACTIVE')
       .order('order_index', { ascending: true })
       .limit(1);
-    activeStep = activeSteps && activeSteps.length > 0 ? activeSteps[0] : null;
+    const firstStep = activeSteps && activeSteps.length > 0
+      ? (activeSteps[0] as { id: string; step_key: string; order_index: number })
+      : null;
+    activeStep = firstStep;
     if (!activeStep) return { error: 'אין שלב פעיל להשלמה' };
   }
 
@@ -253,20 +256,18 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
       type: 'BLOCKED_ACTION',
       title: 'פעולה חסומה',
       body: 'לא ניתן להשלים צילום FixCar ללא קישור',
-    });
+    } as never);
     await writeAudit(supabase, 'WORKFLOW_STEP', activeStep.id, 'BLOCKED_ACTION', user.id, {
       reason: 'fixcar_link_missing',
     });
     return { error: 'נדרש קישור FixCar' };
   }
 
-  // ENTER_WORK: Allow completion but log warning if parts not available (no longer blocking)
   if (stepKey === 'ENTER_WORK' && caseRow.parts_status !== 'AVAILABLE') {
     await writeAudit(supabase, 'WORKFLOW_STEP', activeStep.id, 'STEP_COMPLETED_WITH_WARNING', user.id, {
       reason: 'parts_not_available',
       message: 'שלב הושלם למרות שחלקים לא זמינים',
     });
-    // Don't block - just log the warning
   }
 
   if (stepKey === 'READY_FOR_OFFICE' || stepKey === 'CLOSE_CASE') {
@@ -281,7 +282,7 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
         type: 'BLOCKED_ACTION',
         title: 'פעולה חסומה',
         body: 'קיימות תוספות בטיפול',
-      });
+      } as never);
       await writeAudit(supabase, 'WORKFLOW_STEP', activeStep.id, 'BLOCKED_ACTION', user.id, {
         reason: 'extras_in_treatment',
       });
@@ -291,8 +292,9 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
       .from('ceo_approvals')
       .select('approval_type, status')
       .eq('case_id', caseId);
-    const estimateApproval = (approvals ?? []).find((a) => a.approval_type === 'ESTIMATE_AND_DETAILS');
-    const wheelsApproval = (approvals ?? []).find((a) => a.approval_type === 'WHEELS_CHECK');
+    const approvalsArr = (approvals ?? []) as { approval_type: string; status: string }[];
+    const estimateApproval = approvalsArr.find((a) => a.approval_type === 'ESTIMATE_AND_DETAILS');
+    const wheelsApproval = approvalsArr.find((a) => a.approval_type === 'WHEELS_CHECK');
     const { data: wheelsStep } = await supabase
       .from('case_workflow_steps')
       .select('id')
@@ -300,14 +302,14 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
       .eq('step_key', 'WHEELS_CHECK')
       .eq('state', 'DONE')
       .maybeSingle();
-    const needsWheelsApproval = !!wheelsStep?.id;
+    const needsWheelsApproval = !!(wheelsStep as { id: string } | null)?.id;
     if (!estimateApproval || estimateApproval.status !== 'APPROVED') {
       await supabase.from('notifications').insert({
         user_id: profile!.id,
         type: 'BLOCKED_ACTION',
         title: 'פעולה חסומה',
         body: 'חסר או נדחה אישור CEO לאומדן',
-      });
+      } as never);
       await writeAudit(supabase, 'WORKFLOW_STEP', activeStep.id, 'BLOCKED_ACTION', user.id, {
         reason: 'ceo_approval_missing_or_rejected',
       });
@@ -319,7 +321,7 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
         type: 'BLOCKED_ACTION',
         title: 'פעולה חסומה',
         body: 'חסר או נדחה אישור CEO לבדיקת גלגלים',
-      });
+      } as never);
       await writeAudit(supabase, 'WORKFLOW_STEP', activeStep.id, 'BLOCKED_ACTION', user.id, {
         reason: 'ceo_approval_missing_or_rejected',
       });
@@ -332,13 +334,13 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
       .from('ceo_approvals')
       .select('approval_type')
       .eq('case_id', caseId);
-    const types = new Set((existingApprovals ?? []).map((a) => a.approval_type));
+    const types = new Set((existingApprovals ?? []).map((a) => (a as { approval_type: string }).approval_type));
     if (!types.has('ESTIMATE_AND_DETAILS')) {
       await supabase.from('ceo_approvals').insert({
         case_id: caseId,
         approval_type: 'ESTIMATE_AND_DETAILS',
         status: 'PENDING',
-      });
+      } as never);
     }
     const { data: wheelsStep } = await supabase
       .from('case_workflow_steps')
@@ -352,7 +354,7 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
         case_id: caseId,
         approval_type: 'WHEELS_CHECK',
         status: 'PENDING',
-      });
+      } as never);
     }
   }
 
@@ -364,18 +366,17 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
       state: 'DONE',
       completed_at: now,
       completed_by: user.id,
-    })
+    } as never)
     .eq('id', activeStep.id);
   console.log('[WORKFLOW ACTION] Update result:', updateResult);
 
   if (stepKey === 'READY_FOR_OFFICE') {
     await supabase
       .from('cases')
-      .update({ treatment_finished_at: now })
+      .update({ treatment_finished_at: now } as never)
       .eq('id', caseId);
   }
 
-  // CLOSURE_PREPARE_CLOSING_FORMS: create CEO approval for case closure
   if (stepKey === 'CLOSURE_PREPARE_CLOSING_FORMS' && isClosure) {
     const { data: existing } = await supabase
       .from('ceo_approvals')
@@ -383,31 +384,31 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
       .eq('case_id', caseId)
       .eq('approval_type', 'CASE_CLOSURE')
       .maybeSingle();
-    
+
     if (!existing) {
       await supabase.from('ceo_approvals').insert({
         case_id: caseId,
         approval_type: 'CASE_CLOSURE',
         status: 'PENDING',
-      });
+      } as never);
     }
   }
 
   if (stepKey === 'CLOSE_CASE') {
-    // Check if CEO approval exists and is approved
-    const { data: closureApproval } = await supabase
+    const { data: closureApprovalData } = await supabase
       .from('ceo_approvals')
       .select('status')
       .eq('case_id', caseId)
       .eq('approval_type', 'CASE_CLOSURE')
       .maybeSingle();
-    
-    if (!closureApproval || (closureApproval as { status: string }).status !== 'APPROVED') {
+    const closureApproval = closureApprovalData as { status: string } | null;
+
+    if (!closureApproval || closureApproval.status !== 'APPROVED') {
       return { error: 'נדרש אישור CEO לסגירת תיק' };
     }
-    
-    await supabase.from('cases').update({ closed_at: now, general_status: 'COMPLETED' }).eq('id', caseId);
-    await supabase.from('case_workflow_runs').update({ status: 'COMPLETED' }).eq('id', run.id);
+
+    await supabase.from('cases').update({ closed_at: now, general_status: 'COMPLETED' } as never).eq('id', caseId);
+    await supabase.from('case_workflow_runs').update({ status: 'COMPLETED' } as never).eq('id', run.id);
     await writeAudit(supabase, 'CASE', caseId, 'CASE_CLOSED', user.id);
   }
 
@@ -421,10 +422,10 @@ export async function completeActiveStep(caseId: string, stepId?: string) {
   if (nextSteps && nextSteps.length > 0) {
     await supabase
       .from('case_workflow_steps')
-      .update({ state: 'ACTIVE', activated_at: now })
-      .eq('id', nextSteps[0].id);
+      .update({ state: 'ACTIVE', activated_at: now } as never)
+      .eq('id', (nextSteps[0] as { id: string }).id);
   } else if (run.workflow_type === 'PROFESSIONAL') {
-    await supabase.from('case_workflow_runs').update({ status: 'COMPLETED' }).eq('id', run.id);
+    await supabase.from('case_workflow_runs').update({ status: 'COMPLETED' } as never).eq('id', run.id);
   }
 
   await writeAudit(supabase, 'WORKFLOW_STEP', activeStep.id, 'STEP_COMPLETED', user.id, {
@@ -446,34 +447,36 @@ export async function returnToEstimate(caseId: string) {
   const profile = profileData as { role: string } | null;
   if (profile?.role !== 'SERVICE_MANAGER') return { error: 'רק מנהל שירות יכול להחזיר לאומדן' };
 
-  const { data: run } = await supabase
+  const { data: runData } = await supabase
     .from('case_workflow_runs')
     .select('id')
     .eq('case_id', caseId)
     .eq('workflow_type', 'PROFESSIONAL')
     .eq('status', 'ACTIVE')
     .maybeSingle();
-  if (!run) return { error: 'לא נמצא workflow מקצועי פעיל' };
+  if (!runData) return { error: 'לא נמצא workflow מקצועי פעיל' };
+  const run = runData as { id: string };
 
-  const prepStep = await supabase
+  const { data: prepStepData } = await supabase
     .from('case_workflow_steps')
     .select('id')
     .eq('run_id', run.id)
     .eq('step_key', 'PREP_ESTIMATE')
     .single();
-  if (!prepStep.data) return { error: 'שלב PREP_ESTIMATE לא נמצא' };
+  if (!prepStepData) return { error: 'שלב PREP_ESTIMATE לא נמצא' };
+  const prepStepId = (prepStepData as { id: string }).id;
 
   await supabase
     .from('case_workflow_steps')
-    .update({ state: 'PENDING' })
+    .update({ state: 'PENDING' } as never)
     .eq('run_id', run.id)
     .eq('state', 'ACTIVE');
   const now = new Date().toISOString();
   await supabase
     .from('case_workflow_steps')
-    .update({ state: 'ACTIVE', activated_at: now })
-    .eq('id', prepStep.data.id);
+    .update({ state: 'ACTIVE', activated_at: now } as never)
+    .eq('id', prepStepId);
 
-  await writeAudit(supabase, 'WORKFLOW_STEP', prepStep.data.id, 'RETURNED_TO_ESTIMATE', user.id);
+  await writeAudit(supabase, 'WORKFLOW_STEP', prepStepId, 'RETURNED_TO_ESTIMATE', user.id);
   return { ok: true };
 }

@@ -108,7 +108,7 @@ export default async function CasesPage() {
       stepsByRun.get(runId)!.push(step);
     }
 
-    for (const [runId, steps] of stepsByRun.entries()) {
+    for (const [runId, steps] of Array.from(stepsByRun.entries())) {
       const caseId = runIdToCaseId.get(runId);
       if (!caseId) continue;
 

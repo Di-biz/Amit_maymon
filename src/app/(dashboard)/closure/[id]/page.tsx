@@ -47,7 +47,7 @@ export default async function ClosureDetailPage({ params }: { params: Promise<{ 
 
   const existingRun = runData as { id: string } | null;
   let runId: string;
-  let steps: { id: string; step_key: string; state: string; order_index: number }[] = [];
+  let steps: { id: string; step_key: string; state: 'ACTIVE' | 'PENDING' | 'DONE' | 'SKIPPED'; order_index: number }[] = [];
 
   if (existingRun?.id) {
     runId = existingRun.id;

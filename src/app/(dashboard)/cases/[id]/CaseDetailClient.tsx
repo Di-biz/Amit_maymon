@@ -142,7 +142,7 @@ export function CaseDetailClient({
             .eq('status', 'ACTIVE')
             .maybeSingle();
           
-          let runId = runData?.id;
+          let runId = (runData as { id: string } | null)?.id;
           
           if (!runId) {
             console.log('[CASE DETAIL CLIENT] No run found, creating one...');

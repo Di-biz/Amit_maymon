@@ -70,7 +70,7 @@ export async function uploadCaseDocument(formData: FormData) {
       file_size: file.size,
       mime_type: file.type || null,
       uploaded_by: user.id,
-    });
+    } as never);
 
   if (insertError) {
     // Try to delete uploaded file if insert failed
